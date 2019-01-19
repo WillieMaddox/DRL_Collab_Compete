@@ -17,17 +17,17 @@ def transpose_to_tensor(input_list):
 
 
 # https://github.com/ikostrikov/pytorch-ddpg-naf/blob/master/ddpg.py#L11
-def policy_update(source, target, tau):
+def policy_update(local, target, tau):
     """
-    Perform DDPG soft update (move target params toward source based on weight
+    Perform DDPG soft update (move target params toward local based on weight
     factor tau) With tau == 1, this function performs a hard_update.
     Inputs:
-        source (torch.nn.Module): Net whose parameters to copy
+        local (torch.nn.Module): Net whose parameters to copy
         target (torch.nn.Module): Net to copy parameters to
         tau (float, 0 < x <= 1): Weight factor for update
     """
-    for target_param, param in zip(target.parameters(), source.parameters()):
-        target_param.data.copy_(param.data * tau + target_param.data * (1.0 - tau))
+    for target_param, local_param in zip(target.parameters(), local.parameters()):
+        target_param.data.copy_(local_param.data * tau + target_param.data * (1.0 - tau))
 
 
 # https://github.com/seba-1511/dist_tuto.pth/blob/gh-pages/train_dist.py
@@ -58,11 +58,9 @@ def onehot_from_logits(logits, eps=0.0):
     if eps == 0.0:
         return argmax_acs
     # get random actions in one-hot form
-    rand_acs = Variable(torch.eye(logits.shape[1])[[np.random.choice(
-        range(logits.shape[1]), size=logits.shape[0])]], requires_grad=False)
+    rand_acs = Variable(torch.eye(logits.shape[1])[[np.random.choice(range(logits.shape[1]), size=logits.shape[0])]], requires_grad=False)
     # chooses between best and random actions using epsilon greedy
-    return torch.stack([argmax_acs[i] if r > eps else rand_acs[i] for i, r in
-                        enumerate(torch.rand(logits.shape[0]))])
+    return torch.stack([argmax_acs[i] if r > eps else rand_acs[i] for i, r in enumerate(torch.rand(logits.shape[0]))])
 
 
 # modified for PyTorch from https://github.com/ericjang/gumbel-softmax/blob/master/Categorical%20VAE.ipynb

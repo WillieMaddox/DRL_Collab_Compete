@@ -40,10 +40,10 @@ class MADDPG:
         self.agents = [DDPGAgent(in_actor, 32, 16, action_size, in_critic + action_size * num_agents, 32, 16),
                        DDPGAgent(in_actor, 32, 16, action_size, in_critic + action_size * num_agents, 32, 16)]
 
-        self.gamma = GAMMA
-        self.tau = TAU
-        self.count = 0
         self.epsilon = 1.0
+        self.gamma = GAMMA
+        self.count = 0
+        self.tau = TAU
 
     def get_actors(self):
         """get actors of all the agents in the MADDPG object"""
@@ -228,8 +228,6 @@ class Agent0:
         self.state_size = state_size
         self.action_size = action_size
         self.num_agents = num_agents
-        self.count = 1000
-        self.epsilon = 1.0
         # self.seed = random.seed(random_seed)
 
         # Actor Network (w/ Target Network)
@@ -248,6 +246,8 @@ class Agent0:
 
         # Noise process
         self.noise = OUNoise0(num_agents, action_size)
+        self.count = 0
+        self.epsilon = 1.0
 
         # Initialize time step (for updating every UPDATE_EVERY steps)
         self.t_step = 0
@@ -451,8 +451,8 @@ def ddpg(agent, n_episodes=2000, t_max=1000, save_interval=1000, print_interval=
         states = env_info.vector_observations  # get the current state (for each agent)
         obs = agent.get_obs(states)
 
-        agent.reset()
         episode_rewards = np.zeros((num_agents,))  # initialize the score (for each agent)
+        agent.reset()
         t_step = 0
 
         save_info = i_episode % save_interval < parallel_envs
@@ -495,8 +495,8 @@ def ddpg(agent, n_episodes=2000, t_max=1000, save_interval=1000, print_interval=
                 raise ValueError
 
         episode_reward = np.max(episode_rewards)
-        scores.append(episode_reward)
         scores_window.append(episode_reward)  # save most recent score
+        scores.append(episode_reward)
 
         # If enough samples are available in memory, get random subset and learn
         if update_info and len(buffer) > BATCH_SIZE:
