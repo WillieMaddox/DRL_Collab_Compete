@@ -12,20 +12,20 @@ from model import Actor, Critic, Network
 from utils import transpose_list, transpose_to_tensor
 from utils import policy_update
 
-BUFFER_SIZE = int(2e5)  # replay buffer size
-BATCH_SIZE = 128        # minibatch size
+BUFFER_SIZE = int(1e6)  # replay buffer size
+BATCH_SIZE = 256        # minibatch size
 GAMMA = 0.99            # discount factor
-TAU = 0.001             # for soft update of target parameters
-LR_ACTOR = 1e-3         # Learning rate of the actor
-LR_CRITIC = 2e-4        # Learning rate of the critic
-WEIGHT_DECAY = 1.e-5    # L2 weight decay
-UPDATE_EVERY = 2        # Update the network after this many steps.
+TAU = 0.01             # for soft update of target parameters
+LR_ACTOR = 1e-4         # Learning rate of the actor
+LR_CRITIC = 1e-3        # Learning rate of the critic
+WEIGHT_DECAY = 0    # L2 weight decay
+NOISE_DECAY = 0.99995   #
+UPDATE_EVERY = 1        # Update the network after this many steps.
 NUM_BATCHES = 1         # Roll out this many batches when training.
-
 # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device = "cpu"
 
-OBSNORM = 1.0 / np.array([13, 7, 30, 7, 13, 7])
+OBSNORM = 1.0 / np.array([13, 7, 30, 7, 13, 7, 30, 7])
 
 Obs = namedtuple("Obs", field_names=["px", "py", "vx", "vy", "bx", "by"])
 
@@ -233,7 +233,7 @@ class Agent0:
         # Actor Network (w/ Target Network)
         self.actor_local = Actor(state_size, action_size).to(device)
         self.actor_target = Actor(state_size, action_size).to(device)
-        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=LR_ACTOR)
+        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=LR_ACTOR, weight_decay=WEIGHT_DECAY)
 
         # Critic Network (w/ Target Network)
         self.critic_local = Critic(state_size, action_size).to(device)
@@ -245,42 +245,40 @@ class Agent0:
         policy_update(self.critic_local, self.critic_target, 1.0)
 
         # Noise process
-        self.noise = OUNoise0(num_agents, action_size)
+        # self.noise = OUNoise0(num_agents, action_size)
+        self.noise = OUNoise0(None, action_size)
+        self.noise_scale = 1.0
         self.count = 0
         self.epsilon = 1.0
 
-        # Initialize time step (for updating every UPDATE_EVERY steps)
-        self.t_step = 0
+        self.buffer = ReplayBuffer(BUFFER_SIZE, BATCH_SIZE)
+        # Keep track of how many times we've updated weights
+        self.n_updates = 0
+        self.n_steps = 0
 
     def get_obs(self, states):
         """Create obs and obs_full from states"""
-
-        # states = states.reshape((2, 3, 8))[:, -1, :-2]
-        # states = states * OBSNORM[None, :]
-        states = states.reshape((2, 3, 8))[:, :, :-2]
+        states = states.reshape((2, 3, 8))#[:, :, :-2]
         states = states * OBSNORM[None, None, :]
-        # obs1 = Obs(*states[0])
-        # obs2 = Obs(*states[1])
-        # obs = np.array([[obs1.vx, obs1.vy, obs2.px - obs1.px, obs2.py - obs1.py,
-        #                  obs2.vx, obs2.vy, obs1.bx - obs1.px, obs1.by - obs1.py],
-        #                 [obs2.vx, obs2.vy, obs1.px - obs2.px, obs1.py - obs2.py,
-        #                  obs1.vx, obs1.vy, obs2.bx - obs2.px, obs2.by - obs2.py]])
-        # obs = np.array([states[0] - states[1], states[1] - states[0]])
         obs = states.reshape((2, -1))
-        # obs = states
-
         return obs
 
-    def act(self, states):
+    def act(self, states, train_mode=True):
         """Returns actions for given state as per current policy."""
-        states = torch.from_numpy(states).float().to(device)
-        self.actor_local.eval()
+        if not train_mode:
+            self.actor_local.eval()
+
         with torch.no_grad():
-            actions = self.actor_local(states).cpu().data.numpy()
+            states = torch.from_numpy(states).float().to(device)
+            actions = self.actor_local(states).cpu().numpy()
             # actions = self.actor_local(states).detach().numpy()
+
+        if train_mode:
+            actions += self.noise.sample() * self.noise_scale
+            self.noise_scale = max(self.noise_scale * NOISE_DECAY, 0.01)
+
         self.actor_local.train()
-        if random.random() < self.epsilon:
-            actions += self.noise.sample()
+
         return np.clip(actions, -1, 1)
 
     def reset(self):
@@ -288,7 +286,15 @@ class Agent0:
         self.epsilon = np.exp(-0.0005 * self.count)
         self.noise.reset()
 
-    def learn(self, experiences):
+    def step(self, experience):
+        self.buffer.push(experience)
+        self.n_steps += 1
+        if self.n_steps % UPDATE_EVERY == 0 and self.n_steps > BATCH_SIZE * NUM_BATCHES:
+            for _ in range(NUM_BATCHES):
+                self.learn()
+                self.update_targets()  # soft update the target network towards the actual networks
+
+    def learn(self):
         """Update policy and value parameters using given batch of experience tuples.
         Q_targets = r + γ * critic_target(next_state, actor_target(next_state))
         where:
@@ -300,29 +306,24 @@ class Agent0:
             experiences (Tuple[torch.Tensor]): tuple of (s, a, r, s', done) tuples
             gamma (float): discount factor
         """
-        states, actions, rewards, states_next, dones = experiences
-
-        states = torch.from_numpy(np.vstack(states)).float().to(device)
-        actions = torch.from_numpy(np.vstack(actions)).float().to(device)
-        rewards = torch.from_numpy(np.vstack(rewards)).float().to(device)
-        states_next = torch.from_numpy(np.vstack(states_next)).float().to(device)
-        dones = torch.from_numpy(np.vstack(dones).astype(np.uint8)).float().to(device)
+        states, actions, rewards, states_next, dones = self.buffer.sample()
 
         # Get predicted next-state actions and Q values from target models
-        actions_next = self.actor_target(states_next)
-        Q_targets_next = self.critic_target(states_next, actions_next)
-        # Compute Q targets for current states (y_i)
-        Q_targets = rewards + (GAMMA * Q_targets_next * (1 - dones))
+        with torch.no_grad():
+            actions_next = self.actor_target(states_next)
+            Q_targets_next = self.critic_target(states_next, actions_next)
+            Q_targets = rewards + (GAMMA * Q_targets_next * (1 - dones))
 
         # ---------------------------- update critic ---------------------------- #
         # Compute critic loss
         Q_expected = self.critic_local(states, actions)
-        critic_loss = F.mse_loss(Q_expected, Q_targets)
+        # critic_loss = F.mse_loss(Q_expected, Q_targets)
+        critic_loss = F.smooth_l1_loss(Q_expected, Q_targets)
 
         # Minimize the loss
-        self.critic_optimizer.zero_grad()
+        self.critic_local.zero_grad()
         critic_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.critic_local.parameters(), 1)
+        # torch.nn.utils.clip_grad_norm_(self.critic_local.parameters(), 1)
         self.critic_optimizer.step()
 
         # ---------------------------- update actor ---------------------------- #
@@ -331,19 +332,21 @@ class Agent0:
         actor_loss = -self.critic_local(states, actions_pred).mean()
 
         # Minimize the loss
-        self.actor_optimizer.zero_grad()
+        self.actor_local.zero_grad()
         actor_loss.backward()
         self.actor_optimizer.step()
 
-        # ----------------------- update target networks ----------------------- #
+    def update_targets(self):
+        """soft update targets"""
+        self.n_updates += 1
         policy_update(self.actor_local, self.actor_target, self.tau)
         policy_update(self.critic_local, self.critic_target, self.tau)
 
     def save_model(self, filename):
         save_dict_list = []
-        save_dict = {'actor_params': self.actor_local.state_dict(),
+        save_dict = {'actor': self.actor_local.state_dict(),
                      'actor_optim_params': self.actor_optimizer.state_dict(),
-                     'critic_params': self.critic_local.state_dict(),
+                     'critic': self.critic_local.state_dict(),
                      'critic_optim_params': self.critic_optimizer.state_dict()}
         save_dict_list.append(save_dict)
         torch.save(save_dict_list, filename)
@@ -354,7 +357,10 @@ class OUNoise0:
 
     def __init__(self, n_agents, size, mu=0., theta=0.15, sigma=0.2):
         """Initialize parameters and noise process."""
-        self.mu = mu * np.ones((n_agents, size))
+        if n_agents is None:
+            self.mu = mu * np.ones(size)
+        else:
+            self.mu = mu * np.ones((n_agents, size))
         self.theta = theta
         self.sigma = sigma
         self.state = copy.copy(self.mu)
@@ -366,8 +372,7 @@ class OUNoise0:
     def sample(self):
         """Update internal state and return it as a noise sample."""
         x = self.state
-        dx = self.theta * (self.mu - x) + self.sigma * np.random.random(self.mu.shape)
-        # dx = self.theta * (self.mu - x) + self.sigma * np.random.randn(*self.mu.shape)
+        dx = self.theta * (self.mu - x) + self.sigma * np.random.randn(*self.mu.shape)
         self.state = x + dx
         return self.state
 
@@ -419,14 +424,43 @@ class ReplayBuffer:
     def sample(self):
         """Randomly sample a batch of experiences from memory."""
         samples = random.sample(self.deque, k=self.batch_size)
-        return transpose_list(samples)
+        # transitions = transpose_list(samples)
+        transitions = transpose_to_tensor(samples)
+        return transitions
 
     def __len__(self):
         """Return the current size of internal memory."""
         return len(self.deque)
 
 
-def ddpg(agent, n_episodes=2000, t_max=1000, save_interval=1000, print_interval=200, update_interval=2):
+# fill replay buffer with rnd actions
+def preload_replay_buffer(env, agent, steps):
+    env_info = env.reset(train_mode=True)[brain_name]
+    # obs = agent.get_obs(env_info.vector_observations)
+    obs = env_info.vector_observations
+
+    for _ in range(steps):
+        action = 2.0 * np.random.rand(2, 2) - 1  # between -1..1
+        env_info = env.step(action)[brain_name]
+
+        # obs_next = agent.get_obs(env_info.vector_observations)
+        obs_next = env_info.vector_observations
+        reward = np.array(env_info.rewards)
+        done = np.array(env_info.local_done).astype(np.float)
+
+        transition = (obs.reshape((1, -1)), action.reshape((1, -1)), np.max(reward, keepdims=True).reshape((1, -1)), obs_next.reshape((1, -1)), np.max(done, keepdims=True).reshape((1, -1)))
+        # transition = (obs.reshape(-1), action.reshape(-1), np.max(reward, keepdims=True).reshape(-1), obs_next.reshape(-1), np.max(done, keepdims=True).reshape(-1))
+
+        agent.buffer.push(transition)
+
+        obs = obs_next
+        if done.any():
+            env_info = env.reset(train_mode=True)[brain_name]
+            # obs = agent.get_obs(env_info.vector_observations)
+            obs = env_info.vector_observations
+
+
+def ddpg(agent, n_episodes=2000, t_max=1000, print_interval=100):
     """Deep Deterministic Policy Gradients.
 
     Params
@@ -437,47 +471,53 @@ def ddpg(agent, n_episodes=2000, t_max=1000, save_interval=1000, print_interval=
     """
     scores = []  # list containing scores from each episode
     scores_window = deque(maxlen=100)  # last 100 scores
+    scores_average = []
     parallel_envs = 1
+    best = 0
+    early_stop = 0.61
 
     # log_path = os.getcwd() + "/log"
     model_dir = os.getcwd() + "/model_dir"
     os.makedirs(model_dir, exist_ok=True)
 
-    buffer = ReplayBuffer(BUFFER_SIZE, BATCH_SIZE)
+    # buffer = ReplayBuffer(BUFFER_SIZE, BATCH_SIZE)
     print('BUFFER_SIZE:', BUFFER_SIZE)
 
     for i_episode in range(1, n_episodes + 1):
-        env_info = env.reset(train_mode=True)[brain_name]  # reset the environment
-        states = env_info.vector_observations  # get the current state (for each agent)
-        obs = agent.get_obs(states)
-
         episode_rewards = np.zeros((num_agents,))  # initialize the score (for each agent)
         agent.reset()
         t_step = 0
 
-        save_info = i_episode % save_interval < parallel_envs
+        env_info = env.reset(train_mode=True)[brain_name]  # reset the environment
+        # obs = agent.get_obs(env_info.vector_observations)  # get the current state (for each agent)
+        obs = env_info.vector_observations
+
         print_info = i_episode % print_interval < parallel_envs
-        update_info = i_episode % update_interval < parallel_envs
+        # update_info = i_episode % update_interval < parallel_envs
 
         while True:
 
-            actions = agent.act(obs)  # based on the current state get an action.
+            actions = agent.act(obs.reshape(-1))  # based on the current state get an action.
 
-            env_info = env.step(actions)[brain_name]  # send all actions to the environment
+            env_info = env.step(actions.reshape(2, -1))[brain_name]  # send all actions to the environment
 
-            states_next = env_info.vector_observations  # get next state (for each agent)
-            obs_next = agent.get_obs(states_next)
+            # obs_next = agent.get_obs(env_info.vector_observations)  # get obs from next state
+            obs_next = env_info.vector_observations  # get next state (for each agent)
             rewards = np.array(env_info.rewards)  # get reward (for each agent)
-            dones = np.array(env_info.local_done)  # see if episodes finished
+            dones = np.array(env_info.local_done).astype(np.float)  # see if episodes finished
 
-            preloaded = t_step >= 2
-            push_info = random.random() < 0.2
-            on_reward = np.sum(np.abs(rewards)) > 1e-8
+            # preloaded = t_step >= 2
+            # push_info = random.random() < 1.0
+            # on_reward = np.sum(np.abs(rewards)) > 1e-8
+            # if preloaded and (push_info or on_reward):
+            #     transition = (obs, actions, rewards, obs_next, dones)
+            #     buffer.push(transition)
 
-            if preloaded:
-                if push_info or on_reward:
-                    transition = (obs, actions, rewards, obs_next, dones)
-                    buffer.push(transition)
+            transition = (obs.reshape((1, -1)), actions.reshape((1, -1)), np.max(rewards, keepdims=True).reshape((1, -1)), obs_next.reshape((1, -1)), np.max(dones, keepdims=True).reshape((1, -1)))
+            # transition = (obs.reshape(-1), actions.reshape(-1), np.max(rewards, keepdims=True).reshape(-1), obs_next.reshape(-1), np.max(dones, keepdims=True).reshape(-1))
+            # transition = (obs, actions, rewards, obs_next, dones)
+            agent.step(transition)
+            # buffer.push(transition)
 
             obs = obs_next
             episode_rewards += rewards  # update the score (for each agent)
@@ -497,30 +537,33 @@ def ddpg(agent, n_episodes=2000, t_max=1000, save_interval=1000, print_interval=
         episode_reward = np.max(episode_rewards)
         scores_window.append(episode_reward)  # save most recent score
         scores.append(episode_reward)
+        mean = np.mean(scores_window)
+        scores_average.append(mean)
 
         # If enough samples are available in memory, get random subset and learn
-        if update_info and len(buffer) > BATCH_SIZE:
-            samples = buffer.sample()
-            agent.learn(samples)
+        # if update_info and len(buffer) > BATCH_SIZE * NUM_BATCHES:
+        #     for _ in range(NUM_BATCHES):
+        #         samples = buffer.sample()
+        #         agent.learn(samples)
+        #         agent.update_targets()  # soft update the target network towards the actual networks
 
-        # if update_info and len(buffer) > BATCH_SIZE:
-        #     samples = buffer.sample()
-        #     multi_agent.learn(samples)
-        #     multi_agent.update_targets()  # soft update the target network towards the actual networks
+        summary = f'\rEpisode {i_episode:>4}  Buffer Size: {len(agent.buffer):>6}  Noise: {agent.noise_scale:.2f}  Eps: {agent.epsilon:.4f}  t_step: {t_step:4}  Episode Score: {episode_reward:.2f}  Average Score: {mean:.3f}'
 
-        print('\rEpisode {:>4}  Current Score: {:.2f}  Average Score: {:.2f}  t_step: {:4} Eps: {:.4f}'.format(i_episode, episode_reward, np.mean(scores_window), t_step, agent.epsilon), end="")
+        if mean >= 0.5 and mean > best:
+            summary += " (saved)"
+            best = mean
+            agent.save_model(os.path.join(model_dir, f'tennis-episode-{i_episode}.pt'))
+
         if print_info:
-            print('\rEpisode {:>4}  Current Score: {:.2f}  Average Score: {:.2f}  t_step: {:4} Eps: {:.4f} Buffer Size: {:7}'.format(i_episode, episode_reward, np.mean(scores_window), t_step, agent.epsilon, len(buffer)))
+            print(summary)
+        else:
+            print(summary, end="")
 
-        if save_info:
-            agent.save_model(os.path.join(model_dir, 'episode-{}.pt'.format(i_episode)))
-
-        if np.mean(scores_window) >= 0.5:
-            print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)))
-            agent.save_model(os.path.join(model_dir, 'episode-{}.pt'.format(i_episode)))
+        if best > early_stop:
+            print(f'\nEnvironment solved in {i_episode:d} episodes!\tAverage Score: {mean:.2f}')
             break
 
-    return scores
+    return scores, scores_average
 
 
 def maddpg(multi_agent, n_episodes=2000, t_max=1000, save_interval=1000, print_interval=200, update_interval=2):
@@ -632,18 +675,12 @@ if __name__ == '__main__':
     print('Number of agents:', num_agents)
 
     # size of each action
-    action_size = brain.vector_action_space_size
-    print('Size of each action:', action_size)
-
-    # examine the state space
-    state_size = env_info.vector_observations.shape[1]
-    assert num_agents == env_info.vector_observations.shape[0]
-    print('There are {} agents. Each observes a state with length: {}'.format(num_agents, state_size))
-    print('The state for the first agent looks like:', env_info.vector_observations[0])
-
+    action_size = 2 * brain.vector_action_space_size
+    state_size = 2 * env_info.vector_observations.shape[1]
     t0 = time.time()
-    multi_agent = Agent0(18, action_size, num_agents)
-    scores = ddpg(multi_agent, n_episodes=4000, t_max=1000, update_interval=6)
+    agent = Agent0(state_size, action_size, num_agents)
+    preload_replay_buffer(env, agent, int(1e4))
+    scores, scores_average = ddpg(agent, n_episodes=10000, t_max=2000)
     # multi_agent = MADDPG(state_size, action_size, num_agents)
     # scores = maddpg(multi_agent, n_episodes=6000, t_max=1000, update_interval=6)
     print(time.time() - t0, 'seconds')
@@ -651,6 +688,7 @@ if __name__ == '__main__':
     fig = plt.figure()
     ax = fig.add_subplot(111)
     plt.plot(np.arange(1, len(scores) + 1), scores)
+    plt.plot(np.arange(1, len(scores_average) + 1), scores_average)
     plt.ylabel('Score')
     plt.xlabel('Episode #')
     plt.show()
