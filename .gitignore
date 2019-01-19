@@ -102,3 +102,12 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# PyCharm
+.idea/
+
+# Sims
+*.zip
+Tennis_Linux/
+Tennis_Linux_NoVis/
+Tennis_Windows_x86_64/
