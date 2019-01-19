@@ -258,8 +258,9 @@ class Agent0:
 
     def get_obs(self, states):
         """Create obs and obs_full from states"""
-        states = states.reshape((2, 3, 8))#[:, :, :-2]
-        states = states * OBSNORM[None, None, :]
+        states = states.reshape((2, 3, 8))  # -> (n_agents, n_timesteps, n_obs)
+        # states = states * OBSNORM[None, None, :]  # Normalize
+        states = states[:, :, :-2]  # remove buggy ball velocity.
         obs = states.reshape((2, -1))
         return obs
 
@@ -436,15 +437,14 @@ class ReplayBuffer:
 # fill replay buffer with rnd actions
 def preload_replay_buffer(env, agent, steps):
     env_info = env.reset(train_mode=True)[brain_name]
-    # obs = agent.get_obs(env_info.vector_observations)
-    obs = env_info.vector_observations
+    obs = agent.get_obs(env_info.vector_observations)
 
     for _ in range(steps):
-        action = 2.0 * np.random.rand(2, 2) - 1  # between -1..1
+        action = np.random.randn(2, 2)  # select an action (for each agent)
+        action = np.clip(action, -1, 1)  # all actions between -1 and 1
         env_info = env.step(action)[brain_name]
+        obs_next = agent.get_obs(env_info.vector_observations)
 
-        # obs_next = agent.get_obs(env_info.vector_observations)
-        obs_next = env_info.vector_observations
         reward = np.array(env_info.rewards)
         done = np.array(env_info.local_done).astype(np.float)
 
@@ -456,8 +456,7 @@ def preload_replay_buffer(env, agent, steps):
         obs = obs_next
         if done.any():
             env_info = env.reset(train_mode=True)[brain_name]
-            # obs = agent.get_obs(env_info.vector_observations)
-            obs = env_info.vector_observations
+            obs = agent.get_obs(env_info.vector_observations)
 
 
 def ddpg(agent, n_episodes=2000, t_max=1000, print_interval=100):
@@ -489,8 +488,7 @@ def ddpg(agent, n_episodes=2000, t_max=1000, print_interval=100):
         t_step = 0
 
         env_info = env.reset(train_mode=True)[brain_name]  # reset the environment
-        # obs = agent.get_obs(env_info.vector_observations)  # get the current state (for each agent)
-        obs = env_info.vector_observations
+        obs = agent.get_obs(env_info.vector_observations)  # get the current state (for each agent)
 
         print_info = i_episode % print_interval < parallel_envs
         # update_info = i_episode % update_interval < parallel_envs
@@ -500,9 +498,8 @@ def ddpg(agent, n_episodes=2000, t_max=1000, print_interval=100):
             actions = agent.act(obs.reshape(-1))  # based on the current state get an action.
 
             env_info = env.step(actions.reshape(2, -1))[brain_name]  # send all actions to the environment
+            obs_next = agent.get_obs(env_info.vector_observations)  # get obs from next state
 
-            # obs_next = agent.get_obs(env_info.vector_observations)  # get obs from next state
-            obs_next = env_info.vector_observations  # get next state (for each agent)
             rewards = np.array(env_info.rewards)  # get reward (for each agent)
             dones = np.array(env_info.local_done).astype(np.float)  # see if episodes finished
 
@@ -676,7 +673,7 @@ if __name__ == '__main__':
 
     # size of each action
     action_size = 2 * brain.vector_action_space_size
-    state_size = 2 * env_info.vector_observations.shape[1]
+    state_size = 2 * (env_info.vector_observations.shape[1] - 6)
     t0 = time.time()
     agent = Agent0(state_size, action_size, num_agents)
     preload_replay_buffer(env, agent, int(1e4))
