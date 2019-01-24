@@ -1,4 +1,5 @@
 import os
+import time
 import numpy as np
 from collections import namedtuple, deque
 
@@ -62,7 +63,6 @@ def train(agent, n_episodes=2000, t_max=1000, print_interval=100):
     scores = []  # list containing scores from each episode
     scores_window = deque(maxlen=100)  # last 100 scores
     scores_average = []
-    parallel_envs = 1
     best = 0
     early_stop = 0.61
 
@@ -70,7 +70,6 @@ def train(agent, n_episodes=2000, t_max=1000, print_interval=100):
     model_dir = os.getcwd() + "/model_dir"
     os.makedirs(model_dir, exist_ok=True)
 
-    # buffer = ReplayBuffer(BUFFER_SIZE, BATCH_SIZE)
     print('BUFFER_SIZE:', BUFFER_SIZE)
 
     for i_episode in range(1, n_episodes + 1):
@@ -80,9 +79,6 @@ def train(agent, n_episodes=2000, t_max=1000, print_interval=100):
 
         env_info = env.reset(train_mode=True)[brain_name]  # reset the environment
         obs = agent.get_obs(env_info.vector_observations)  # get the current state (for each agent)
-
-        print_info = i_episode % print_interval < parallel_envs
-        # update_info = i_episode % update_interval < parallel_envs
 
         while True:
 
@@ -110,7 +106,7 @@ def train(agent, n_episodes=2000, t_max=1000, print_interval=100):
             obs = obs_next
             episode_rewards += rewards  # update the score (for each agent)
 
-            if np.any(dones):  # exit loop if episode finished
+            if dones.any():  # exit loop if episode finished
                 break
 
             t_step += 1  # increment the number of steps seen this episode.
@@ -135,14 +131,14 @@ def train(agent, n_episodes=2000, t_max=1000, print_interval=100):
         #         agent.learn(samples)
         #         agent.update_targets()  # soft update the target network towards the actual networks
 
-        summary = f'\rEpisode {i_episode:>4}  Buffer Size: {len(agent.buffer):>6}  Noise: {agent.noise_scale:.2f}  Eps: {agent.epsilon:.4f}  t_step: {t_step:4}  Episode Score: {episode_reward:.2f}  Average Score: {mean:.3f}'
+        summary = f'\rEpisode {i_episode:>4}  Buffer Size: {len(agent.buffer):>6}  Noise: {agent.noise_scale:.2f}  Eps: {agent.epsilon:.4f}  t_step: {t_step:4}  Episode Score (Avg): {episode_reward:.2f} ({mean:.3f})'
 
         if mean >= 0.5 and mean > best:
             summary += " (saved)"
             best = mean
             agent.save_model(os.path.join(model_dir, f'tennis-episode-{i_episode}.pt'))
 
-        if print_info:
+        if i_episode % print_interval == 0:
             print(summary)
         else:
             print(summary, end="")
@@ -155,7 +151,6 @@ def train(agent, n_episodes=2000, t_max=1000, print_interval=100):
 
 
 if __name__ == '__main__':
-    import time
     import matplotlib.pyplot as plt
     from unityagents import UnityEnvironment
 
@@ -175,7 +170,7 @@ if __name__ == '__main__':
     action_size = 2 * brain.vector_action_space_size
     state_size = 2 * (env_info.vector_observations.shape[1] - 6)
     t0 = time.time()
-    agent = Agent(state_size, action_size, num_agents)
+    agent = Agent(state_size, action_size)
     preload_replay_buffer(env, agent, int(1e4))
     scores, scores_average = train(agent, n_episodes=10000, t_max=2000)
     print(time.time() - t0, 'seconds')

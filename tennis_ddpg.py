@@ -1,7 +1,7 @@
 import random
 import copy
-import numpy as np
 from collections import namedtuple, deque
+import numpy as np
 
 import torch
 import torch.nn.functional as F
@@ -11,29 +11,28 @@ from model import Actor, Critic
 from utils import transpose_list, transpose_to_tensor
 from utils import policy_update
 
-BUFFER_SIZE = int(1e5)  # replay buffer size
-BATCH_SIZE = 256        # minibatch size
-GAMMA = 0.99            # discount factor
-TAU = 0.02             # for soft update of target parameters
-LR_ACTOR = 2e-4         # Learning rate of the actor
-LR_CRITIC = 2e-3        # Learning rate of the critic
-WEIGHT_DECAY = 0    # L2 weight decay
-NOISE_DECAY = 0.99995   #
-UPDATE_EVERY = 1        # Update the network after this many steps.
-NUM_BATCHES = 1         # Roll out this many batches when training.
 # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device = "cpu"
 
 OBSNORM = 1.0 / np.array([13, 7, 30, 7, 13, 7, 30, 7])
 
-Obs = namedtuple("Obs", field_names=["px", "py", "vx", "vy", "bx", "by"])
 
 
 class Agent:
     """Interacts with and learns from the environment."""
 
-    def __init__(self, state_size, action_size, num_agents, restore=None):
-        """Initialize an Agent0 object.
+    def __init__(self, state_size, action_size,
+                 buffer_size=int(1e5),
+                 batch_size=256,
+                 n_batches=1,
+                 update_every=1,
+                 gamma=0.99,
+                 tau=0.02,
+                 lr_actor=2e-4,
+                 lr_critic=2e-3,
+                 noise_decay=0.99995,
+                 restore=None):
+        """Initialize an Agent object.
 
         Params
         ======
@@ -41,21 +40,19 @@ class Agent:
             action_size (int): dimension of each action
             random_seed (int): random seed
         """
-        self.tau = TAU
         self.state_size = state_size
         self.action_size = action_size
-        self.num_agents = num_agents
         # self.seed = random.seed(random_seed)
 
         # Actor Network (w/ Target Network)
         self.actor_local = Actor(state_size, action_size).to(device)
         self.actor_target = Actor(state_size, action_size).to(device)
-        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=LR_ACTOR, weight_decay=WEIGHT_DECAY)
+        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=lr_actor)
 
         # Critic Network (w/ Target Network)
         self.critic_local = Critic(state_size, action_size).to(device)
         self.critic_target = Critic(state_size, action_size).to(device)
-        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=LR_CRITIC, weight_decay=WEIGHT_DECAY)
+        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=lr_critic)
 
         # restore networks if needed
         if restore is not None:
@@ -70,42 +67,54 @@ class Agent:
         policy_update(self.critic_local, self.critic_target, 1.0)
 
         # Noise process
-        # self.noise = OUNoise0(num_agents, action_size)
-        self.noise = OUNoise(None, action_size)
+        self.noise = OUNoise(action_size)
+        self.noise_decay = noise_decay
         self.noise_scale = 1.0
         self.count = 0
         self.epsilon = 1.0
+        self.gamma = gamma
+        self.tau = tau
 
-        self.buffer = ReplayBuffer(BUFFER_SIZE, BATCH_SIZE)
+        self.buffer = ReplayBuffer(buffer_size, batch_size)
         # Keep track of how many times we've updated weights
+        self.update_every = update_every
+        self.batch_size = batch_size
+        self.n_batches = n_batches
         self.n_updates = 0
         self.n_steps = 0
 
-    def get_obs(self, states):
-        """Create obs and obs_full from states"""
-        states = states.reshape((2, 3, 8))  # -> (n_agents, n_timesteps, n_obs)
-        # states = states * OBSNORM[None, None, :]  # Normalize
-        states = states[:, :, :-2]  # remove buggy ball velocity.
-        obs = states.reshape((2, -1))
-        return obs
-
-    def act(self, states, train_mode=True):
+    def act(self, states, perturb_mode=True, train_mode=True):
         """Returns actions for given state as per current policy."""
         if not train_mode:
             self.actor_local.eval()
+            self.actor_perturbed.eval()
 
         with torch.no_grad():
             states = torch.from_numpy(states).float().to(device)
-            actions = self.actor_local(states).cpu().numpy()
-            # actions = self.actor_local(states).detach().numpy()
+            actor = self.actor_perturbed if perturb_mode else self.actor_local
+            actions = actor(states).cpu().numpy()
 
         if train_mode:
             actions += self.noise.sample() * self.noise_scale
-            self.noise_scale = max(self.noise_scale * NOISE_DECAY, 0.01)
+            self.noise_scale = max(self.noise_scale * self.noise_decay, 0.01)
 
         self.actor_local.train()
+        self.actor_perturbed.train()
 
         return np.clip(actions, -1, 1)
+
+    def perturb_actor_parameters(self, param_noise):
+        """Apply parameter noise to actor model, for exploration"""
+        policy_update(self.actor_local, self.actor_perturbed, 1.0)
+        params = self.actor_perturbed.state_dict()
+        for name in params:
+            if 'ln' in name:
+                pass
+            param = params[name]
+            random = torch.randn(param.shape)
+            if use_cuda:
+                random = random.cuda()
+            param += random * param_noise.current_stddev
 
     def reset(self):
         self.count += 1
@@ -115,8 +124,8 @@ class Agent:
     def step(self, experience):
         self.buffer.push(experience)
         self.n_steps += 1
-        if self.n_steps % UPDATE_EVERY == 0 and self.n_steps > BATCH_SIZE * NUM_BATCHES:
-            for _ in range(NUM_BATCHES):
+        if self.n_steps % self.update_every == 0 and self.n_steps > self.batch_size * self.n_batches:
+            for _ in range(self.n_batches):
                 self.learn()
                 self.update_targets()  # soft update the target network towards the actual networks
 
@@ -138,7 +147,7 @@ class Agent:
         with torch.no_grad():
             actions_next = self.actor_target(states_next)
             Q_targets_next = self.critic_target(states_next, actions_next)
-            Q_targets = rewards + (GAMMA * Q_targets_next * (1 - dones))
+            Q_targets = rewards + (self.gamma * Q_targets_next * (1 - dones))
 
         # ---------------------------- update critic ---------------------------- #
         # Compute critic loss
@@ -181,12 +190,9 @@ class Agent:
 class OUNoise:
     """Ornstein-Uhlenbeck process."""
 
-    def __init__(self, n_agents, size, mu=0., theta=0.15, sigma=0.2):
+    def __init__(self, size, mu=0., theta=0.15, sigma=0.2):
         """Initialize parameters and noise process."""
-        if n_agents is None:
-            self.mu = mu * np.ones(size)
-        else:
-            self.mu = mu * np.ones((n_agents, size))
+        self.mu = mu * np.ones(size)
         self.theta = theta
         self.sigma = sigma
         self.state = copy.copy(self.mu)
@@ -226,9 +232,8 @@ class ReplayBuffer:
     def sample(self):
         """Randomly sample a batch of experiences from memory."""
         samples = random.sample(self.deque, k=self.batch_size)
-        # transitions = transpose_list(samples)
-        transitions = transpose_to_tensor(samples)
-        return transitions
+        return transpose_to_tensor(samples)
+
 
     def __len__(self):
         """Return the current size of internal memory."""
