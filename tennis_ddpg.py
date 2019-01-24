@@ -10,12 +10,70 @@ import torch.optim as optim
 from model import Actor, Critic
 from utils import transpose_list, transpose_to_tensor
 from utils import policy_update
+from unityagents import UnityEnvironment
 
 # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device = "cpu"
 
 OBSNORM = 1.0 / np.array([13, 7, 30, 7, 13, 7, 30, 7])
 
+
+class UnityEnv:
+    """Unity Environment Wrapper
+
+    """
+
+    def __init__(self,
+                 file_name='data/Tennis_Windows_x86_64/Tennis.exe',
+                 no_graphics=True,
+                 normalize=False,
+                 remove_ball_velocity=True):
+
+        self.normalize = normalize
+        self.remove_ball_velocity = remove_ball_velocity
+
+        self.env = UnityEnvironment(file_name=file_name, no_graphics=no_graphics)
+        self.brain_name = self.env.brain_names[0]
+        brain = self.env.brains[self.brain_name]
+        env_info = self.env.reset(train_mode=True)[self.brain_name]
+
+        self.num_agents = env_info.vector_observations.shape[0]
+        self.state_size = self.get_obs(env_info.vector_observations).shape[1]
+        self.action_size = brain.vector_action_space_size
+        self.max_reached = env_info.max_reached
+
+    def get_obs(self, states):
+        """Create obs and obs_full from states"""
+        states = states.reshape((self.num_agents, 3, 8))  # -> (n_agents, n_timesteps, n_obs)
+        if self.normalize:
+            states = states * OBSNORM[None, None, :]  # Normalize
+        if self.remove_ball_velocity:
+            states = states[:, :, :-2]  # remove buggy ball velocity.
+        obs = states.reshape((self.num_agents, -1))
+        return obs
+
+    def reset(self, train_mode=True):
+        env_info = self.env.reset(train_mode=train_mode)[self.brain_name]
+        states = env_info.vector_observations
+        obs = self.get_obs(states)
+        return obs
+
+    def step(self, actions):
+        actions = np.clip(actions, -1, 1)  # all actions between -1 and 1
+        env_info = self.env.step(actions)[self.brain_name]
+        states_next = env_info.vector_observations
+        obs_next = self.get_obs(states_next)
+        rewards = np.array(env_info.rewards)
+        dones = np.array(env_info.local_done).astype(np.float)
+        self.max_reached = env_info.max_reached
+        return obs_next, rewards, dones
+
+    def close(self):
+        self.env.close()
+
+    @property
+    def action_shape(self):
+        return self.num_agents, self.action_size
 
 
 class Agent:
