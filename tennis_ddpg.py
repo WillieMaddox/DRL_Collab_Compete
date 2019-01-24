@@ -131,7 +131,7 @@ class Agent:
         policy_update(self.critic_local, self.critic_target, 1.0)
 
         # Noise process
-        self.noise = OUNoise(action_size)
+        self.noise = OUNoise(action_size, sigma=0.05)
         self.noise_decay = noise_decay
         self.noise_scale = 1.0
         self.count = 0

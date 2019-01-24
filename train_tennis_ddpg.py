@@ -30,7 +30,7 @@ def train(env, agent, preload_steps=0, n_episodes=2000, t_max=1000, print_interv
     scores_window = deque(maxlen=100)  # last 100 scores
     scores_average = []
     best = 0
-    early_stop = 0.61
+    early_stop = 0.5
 
     # log_path = os.getcwd() + "/log"
     model_dir = os.getcwd() + "/model_dir"
