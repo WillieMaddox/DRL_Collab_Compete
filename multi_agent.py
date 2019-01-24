@@ -12,12 +12,12 @@ from model import Actor, Critic, Network
 from utils import transpose_list, transpose_to_tensor
 from utils import policy_update
 
-BUFFER_SIZE = int(1e6)  # replay buffer size
+BUFFER_SIZE = int(1e5)  # replay buffer size
 BATCH_SIZE = 256        # minibatch size
 GAMMA = 0.99            # discount factor
-TAU = 0.01             # for soft update of target parameters
-LR_ACTOR = 1e-4         # Learning rate of the actor
-LR_CRITIC = 1e-3        # Learning rate of the critic
+TAU = 0.02             # for soft update of target parameters
+LR_ACTOR = 2e-4         # Learning rate of the actor
+LR_CRITIC = 2e-3        # Learning rate of the critic
 WEIGHT_DECAY = 0    # L2 weight decay
 NOISE_DECAY = 0.99995   #
 UPDATE_EVERY = 1        # Update the network after this many steps.
