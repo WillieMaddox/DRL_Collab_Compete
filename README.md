@@ -48,12 +48,22 @@ The environment is considered solved, when the average (over 100 episodes) of th
    $ cd DRL_Collab_Compete
    ```
    
-3. Install dependencies
+   Install ml-agents from the repository
    ```bash
-   (drlcc)$ pip install ./python
+   (drlcc)$ git clone https://github.com/Unity-Technologies/ml-agents.git
+   (drlcc)$ cd ml-agents
+   (drlcc)$ git checkout 0.4.0b
+   (drlcc)$ cd python 
+   (drlcc)$ pip install .
    ```
-   Note: The code in the `./python` directory contains the necessary files needed to communicate with the Tennis simulator.  I simply copied the required files from the [ml-agents](https://github.com/Unity-Technologies/ml-agents) repo for convenience.
    
+   Install PyTorch using the recommended [pip command](https://pytorch.org/) from the PyTorch site. For example, to install with CUDA 9.2: 
+
+   ```bash
+   (drlcc)$ conda install pytorch cuda92 -c pytorch
+   ```
+
+
 3. Download the environment from one of the links below.  You need only select the environment that matches your operating system:
     - Linux: [click here](https://s3-us-west-1.amazonaws.com/udacity-drlnd/P3/Tennis/Tennis_Linux.zip)
     - Mac OSX: [click here](https://s3-us-west-1.amazonaws.com/udacity-drlnd/P3/Tennis/Tennis.app.zip)
