@@ -1,5 +1,7 @@
 import random
 import copy
+from math import sqrt
+from itertools import islice
 from collections import namedtuple, deque
 import numpy as np
 
@@ -13,7 +15,10 @@ from utils import policy_update
 from unityagents import UnityEnvironment
 
 # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# use_cuda = torch.cuda.is_available()
+
 device = "cpu"
+use_cuda = device != "cpu"
 
 OBSNORM = 1.0 / np.array([13, 7, 30, 7, 13, 7, 30, 7])
 
@@ -105,6 +110,7 @@ class Agent:
         # Actor Network (w/ Target Network)
         self.actor_local = Actor(state_size, action_size).to(device)
         self.actor_target = Actor(state_size, action_size).to(device)
+        self.actor_perturbed = Actor(state_size, action_size).to(device)
         self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=lr_actor)
 
         # Critic Network (w/ Target Network)
@@ -245,6 +251,33 @@ class Agent:
         torch.save(save_dict_list, filename)
 
 
+class AdaptiveParamNoiseSpec(object):
+    def __init__(self, initial_stddev=0.1, desired_action_stddev=0.1, adoption_coefficient=1.01):
+        self.initial_stddev = initial_stddev
+        self.desired_action_stddev = desired_action_stddev
+        self.adoption_coefficient = adoption_coefficient
+
+        self.current_stddev = initial_stddev
+
+    def adapt(self, distance):
+        if distance > self.desired_action_stddev:
+            # Decrease stddev.
+            self.current_stddev /= self.adoption_coefficient
+        else:
+            # Increase stddev.
+            self.current_stddev *= self.adoption_coefficient
+
+    def get_stats(self):
+        stats = {
+            'param_noise_stddev': self.current_stddev,
+        }
+        return stats
+
+    def __repr__(self):
+        fmt = 'AdaptiveParamNoiseSpec(initial_stddev={}, desired_action_stddev={}, adoption_coefficient={})'
+        return fmt.format(self.initial_stddev, self.desired_action_stddev, self.adoption_coefficient)
+
+
 class OUNoise:
     """Ornstein-Uhlenbeck process."""
 
@@ -292,7 +325,21 @@ class ReplayBuffer:
         samples = random.sample(self.deque, k=self.batch_size)
         return transpose_to_tensor(samples)
 
+    def tail(self, n):
+        samples = list(islice(self.deque, len(self.deque) - n, len(self.deque)))
+        return transpose_list(samples)
 
     def __len__(self):
         """Return the current size of internal memory."""
         return len(self.deque)
+
+
+def ddpg_distance_metric(actions1, actions2):
+    """
+    Compute "distance" between actions taken by two policies at the same states
+    Expects numpy arrays
+    """
+    diff = actions1-actions2
+    mean_diff = np.mean(np.square(diff), axis=0)
+    dist = sqrt(np.mean(mean_diff))
+    return dist

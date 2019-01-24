@@ -3,6 +3,7 @@ import time
 from collections import deque
 import numpy as np
 from tennis_ddpg import UnityEnv, Agent
+from tennis_ddpg import ddpg_distance_metric, AdaptiveParamNoiseSpec
 
 BUFFER_SIZE = int(1e5)  # replay buffer size
 BATCH_SIZE = 256        # minibatch size
@@ -49,10 +50,13 @@ def train(env, agent, preload_steps=0, n_episodes=2000, t_max=1000, print_interv
         if dones.any():
             obs = env.reset()
 
+    param_noise = AdaptiveParamNoiseSpec()
+
     for i_episode in range(1, n_episodes + 1):
         episode_rewards = np.zeros((env.num_agents,))  # initialize the score (for each agent)
         obs = env.reset()  # reset the environment
         agent.reset()
+        agent.perturb_actor_parameters(param_noise)
         t_step = 0
 
         while True:
@@ -89,6 +93,11 @@ def train(env, agent, preload_steps=0, n_episodes=2000, t_max=1000, print_interv
         mean = np.mean(scores_window)
         scores_average.append(mean)
 
+        perturbed_states, perturbed_actions, _, _, _ = agent.buffer.tail(t_step)
+        unperturbed_actions = agent.act(np.array(perturbed_states), False, False)
+        ddpg_dist = ddpg_distance_metric(np.array(perturbed_actions), unperturbed_actions)
+        param_noise.adapt(ddpg_dist)
+
         # If enough samples are available in memory, get random subset and learn
         # if update_info and len(buffer) > BATCH_SIZE * NUM_BATCHES:
         #     for _ in range(NUM_BATCHES):
@@ -113,8 +122,6 @@ def train(env, agent, preload_steps=0, n_episodes=2000, t_max=1000, print_interv
             break
 
     return scores, scores_average
-
-
 
 
 if __name__ == '__main__':
