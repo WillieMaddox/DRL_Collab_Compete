@@ -11,6 +11,20 @@ def hidden_init(layer):
     return -lim, lim
 
 
+# https://github.com/navneet-nmk/pytorch-rl/blob/master/Layers/LayerNorm.py
+class LayerNorm(nn.Module):
+    def __init__(self, features, eps=1e-6):
+        super().__init__()
+        self.gamma = nn.Parameter(torch.ones(features))
+        self.beta = nn.Parameter(torch.zeros(features))
+        self.eps = eps
+
+    def forward(self, x):
+        mean = x.mean(-1, keepdim=True)
+        std = x.std(-1, keepdim=True)
+        return self.gamma * (x - mean) / (std + self.eps) + self.beta
+
+
 class Actor(nn.Module):
     """Actor (Policy) Model."""
 
@@ -29,6 +43,8 @@ class Actor(nn.Module):
         self.fc1 = nn.Linear(state_size, fc1_units)
         self.fc2 = nn.Linear(fc1_units, fc2_units)
         self.fc3 = nn.Linear(fc2_units, action_size)
+        self.ln1 = LayerNorm(fc1_units)
+        self.ln2 = LayerNorm(fc2_units)
         self.nonlin = F.leaky_relu
         self.reset_parameters()
 
@@ -42,8 +58,10 @@ class Actor(nn.Module):
         if state.dim() == 1:
             state = torch.unsqueeze(state, 0)
         x = self.fc1(state)
+        x = self.ln1(x)
         x = self.nonlin(x)
         x = self.fc2(x)
+        x = self.ln2(x)
         x = self.nonlin(x)
         x = self.fc3(x)
         action = F.tanh(x)
