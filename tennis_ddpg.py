@@ -102,6 +102,7 @@ class Agent:
         self.batch_size = batch_size
         self.gamma = gamma
         self.tau = tau
+        self.i_updates = 0
 
         # Actor Network (w/ Target Network)
         self.actor_local = Actor(state_size, action_size).to(device)
@@ -135,7 +136,6 @@ class Agent:
         self.buffer = ReplayBuffer(buffer_size, batch_size)
         # Keep track of how many times we've updated weights
         self.n_batches = n_batches
-        self.n_updates = 0
         self.n_steps = 0
 
     def act(self, states, perturb_mode=True, train_mode=True):
@@ -180,7 +180,7 @@ class Agent:
         if self.n_steps % self.update_every == 0 and self.n_steps > self.batch_size * self.n_batches:
             for _ in range(self.n_batches):
                 self.learn()
-                self.update_targets()  # soft update the target network towards the actual networks
+                self.update()  # soft update the target network towards the actual networks
 
     def learn(self):
         """Update policy and value parameters using given batch of experience tuples.
@@ -222,9 +222,9 @@ class Agent:
         actor_loss.backward()
         self.actor_optimizer.step()
 
-    def update_targets(self):
+    def update(self):
         """soft update targets"""
-        self.n_updates += 1
+        self.i_updates += 1
         policy_update(self.actor_local, self.actor_target, self.tau)
         policy_update(self.critic_local, self.critic_target, self.tau)
 
