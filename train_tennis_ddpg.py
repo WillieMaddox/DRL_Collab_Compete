@@ -44,7 +44,6 @@ def train(env, agent, preload_steps=0, n_episodes=2000, t_max=1000, print_interv
         actions = np.random.randn(2, 2)  # select an action (for each agent)
         obs_next, rewards, dones = env.step(actions)
         transition = (obs.reshape((1, -1)), actions.reshape((1, -1)), np.max(rewards, keepdims=True).reshape((1, -1)), obs_next.reshape((1, -1)), np.max(dones, keepdims=True).reshape((1, -1)))
-        # transition = (obs.reshape(-1), actions.reshape(-1), np.max(rewards, keepdims=True).reshape(-1), obs_next.reshape(-1), np.max(dones, keepdims=True).reshape(-1))
         agent.buffer.push(transition)
         obs = obs_next
         if dones.any():
@@ -63,14 +62,7 @@ def train(env, agent, preload_steps=0, n_episodes=2000, t_max=1000, print_interv
 
             actions = agent.act(obs.reshape(-1))  # based on the current state get an action.
             obs_next, rewards, dones = env.step(actions.reshape(2, -1))  # send all actions to the environment
-            # preloaded = t_step >= 2
-            # push_info = random.random() < 1.0
-            # on_reward = np.sum(np.abs(rewards)) > 1e-8
-            # if preloaded and (push_info or on_reward):
-            #     transition = (obs, actions, rewards, obs_next, dones)
-            #     buffer.push(transition)
             transition = (obs.reshape((1, -1)), actions.reshape((1, -1)), np.max(rewards, keepdims=True).reshape((1, -1)), obs_next.reshape((1, -1)), np.max(dones, keepdims=True).reshape((1, -1)))
-            # transition = (obs.reshape(-1), actions.reshape(-1), np.max(rewards, keepdims=True).reshape(-1), obs_next.reshape(-1), np.max(dones, keepdims=True).reshape(-1))
             agent.step(transition)
             obs = obs_next
             episode_rewards += rewards  # update the score (for each agent)
@@ -92,12 +84,6 @@ def train(env, agent, preload_steps=0, n_episodes=2000, t_max=1000, print_interv
         ddpg_dist = ddpg_distance_metric(np.array(perturbed_actions), unperturbed_actions)
         param_noise.adapt(ddpg_dist)
 
-        # If enough samples are available in memory, get random subset and learn
-        # if update_info and len(buffer) > BATCH_SIZE * NUM_BATCHES:
-        #     for _ in range(NUM_BATCHES):
-        #         samples = buffer.sample()
-        #         agent.learn(samples)
-        #         agent.update_targets()  # soft update the target network towards the actual networks
 
         summary = f'\rEpisode {i_episode:>4}  Buffer Size: {len(agent.buffer):>6}  Noise: {agent.noise_scale:.2f}  Eps: {agent.epsilon:.4f}  t_step: {t_step:4}  Episode Score (Avg): {episode_reward:.2f} ({mean:.3f})'
 

@@ -71,10 +71,6 @@ class UnityTennisEnv:
     def close(self):
         self.env.close()
 
-    @property
-    def action_shape(self):
-        return self.num_agents, self.action_size
-
 
 class Agent:
     """Interacts with and learns from the environment."""
@@ -211,13 +207,11 @@ class Agent:
         # ---------------------------- update critic ---------------------------- #
         # Compute critic loss
         Q_expected = self.critic_local(states, actions)
-        # critic_loss = F.mse_loss(Q_expected, Q_targets)
         critic_loss = F.smooth_l1_loss(Q_expected, Q_targets)
 
         # Minimize the loss
         self.critic_local.zero_grad()
         critic_loss.backward()
-        # torch.nn.utils.clip_grad_norm_(self.critic_local.parameters(), 1)
         self.critic_optimizer.step()
 
         # ---------------------------- update actor ---------------------------- #

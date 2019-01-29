@@ -149,12 +149,6 @@ class MADDPG:
         # torch.nn.utils.clip_grad_norm_(agent.actor.parameters(), 1)
         agent.actor_optimizer.step()
 
-        # al = actor_loss.cpu().detach().item()
-        # cl = critic_loss.cpu().detach().item()
-        # logger.add_scalars('agent%i/losses' % agent_number,
-        #                    {'critic loss': cl,
-        #                     'actor_loss': al},
-        #                    self.iter)
 
     def reset(self):
         self.count += 1
