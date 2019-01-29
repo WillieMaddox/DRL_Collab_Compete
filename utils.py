@@ -10,6 +10,12 @@ def transpose_list(mylist):
     return list(map(list, zip(*mylist)))
 
 
+def transpose_array_to_list(mylist):
+    def make_array(x):
+        return np.array(x, dtype=np.float)
+    return list(map(make_array, zip(*mylist)))
+
+
 def transpose_to_tensor(input_list):
     def make_tensor(x):
         return torch.tensor(x, dtype=torch.float)
