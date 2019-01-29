@@ -96,18 +96,20 @@ class Agent:
         """
         self.state_size = state_size
         self.action_size = action_size
+        self.update_every = update_every
         # self.seed = random.seed(random_seed)
+        self.batch_size = batch_size
+        self.gamma = gamma
+        self.tau = tau
 
         # Actor Network (w/ Target Network)
         self.actor_local = Actor(state_size, action_size).to(device)
         self.actor_target = Actor(state_size, action_size).to(device)
         self.actor_perturbed = Actor(state_size, action_size).to(device)
-        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=lr_actor)
 
         # Critic Network (w/ Target Network)
         self.critic_local = Critic(state_size, action_size).to(device)
         self.critic_target = Critic(state_size, action_size).to(device)
-        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=lr_critic)
 
         # restore networks if needed
         if restore is not None:
@@ -116,6 +118,9 @@ class Agent:
             self.actor_target.load_state_dict(checkpoint[0]['actor'])
             self.critic_local.load_state_dict(checkpoint[0]['critic'])
             self.critic_target.load_state_dict(checkpoint[0]['critic'])
+
+        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=lr_actor)
+        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=lr_critic)
 
         # Hard copy weights from local to target networks
         policy_update(self.actor_local, self.actor_target, 1.0)
@@ -127,13 +132,9 @@ class Agent:
         self.noise_scale = 1.0
         self.count = 0
         self.epsilon = 1.0
-        self.gamma = gamma
-        self.tau = tau
 
         self.buffer = ReplayBuffer(buffer_size, batch_size)
         # Keep track of how many times we've updated weights
-        self.update_every = update_every
-        self.batch_size = batch_size
         self.n_batches = n_batches
         self.n_updates = 0
         self.n_steps = 0
@@ -159,7 +160,7 @@ class Agent:
         return np.clip(actions, -1, 1)
 
     def perturb_actor_parameters(self, param_noise):
-        """Apply parameter noise to actor model, for exploration"""
+        """Apply parameter space noise to actor model, for exploration"""
         policy_update(self.actor_local, self.actor_perturbed, 1.0)
         params = self.actor_perturbed.state_dict()
         for name in params:

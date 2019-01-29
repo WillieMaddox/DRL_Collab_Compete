@@ -56,8 +56,8 @@ def train(env, agent, preload_steps=0, n_episodes=2000, t_max=1000, print_interv
         obs = env.reset()  # reset the environment
         agent.reset()
         agent.perturb_actor_parameters(param_noise)
-        t_step = 0
 
+        t_step = 0
         while True:
 
             actions = agent.act(obs.reshape(-1))  # based on the current state get an action.
