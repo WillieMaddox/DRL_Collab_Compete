@@ -6,19 +6,21 @@ from tennis_ddpg import UnityTennisEnv, Agent
 from tennis_ddpg import ddpg_distance_metric
 from tennis_ddpg import PSNoise
 
-BUFFER_SIZE = int(1e5)  # replay buffer size
-BATCH_SIZE = 256        # minibatch size
-GAMMA = 0.99            # discount factor
-TAU = 0.02             # for soft update of target parameters
-LR_ACTOR = 2e-4         # Learning rate of the actor
-LR_CRITIC = 2e-3        # Learning rate of the critic
 WEIGHT_DECAY = 0    # L2 weight decay
 NOISE_DECAY = 0.99995   #
-UPDATE_EVERY = 1        # Update the network after this many steps.
 NUM_BATCHES = 1         # Roll out this many batches when training.
+PRELOAD_STEPS = int(1e4)  # initialize the replay buffer with this many transitions.
+BUFFER_SIZE = int(2e5)    # replay buffer size
+BATCH_SIZE = 256          # minibatch size
+GAMMA = 0.99              # discount factor
+TAU = 0.02                # for soft update of target parameters
+LR_ACTOR = 2e-4           # Learning rate of the actor
+LR_CRITIC = 2e-3          # Learning rate of the critic
+UPDATE_EVERY = 1          # Update the network after this many steps.
+NUM_EPISODES = 4000
 
 
-def train(env, agent, preload_steps=0, n_episodes=2000, t_max=1000, print_interval=100):
+def train(env, agent, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISODES, t_max=2000, print_interval=100):
     """Train using Deep Deterministic Policy Gradients.
 
     Params
@@ -113,8 +115,20 @@ if __name__ == '__main__':
     action_size = env.num_agents * env.action_size
 
     t0 = time.time()
-    agent = Agent(state_size, action_size)
-    scores, scores_average = train(env, agent, int(1e4), n_episodes=10000, t_max=2000)
+    agent_config = {
+        'buffer_size': BUFFER_SIZE,
+        'batch_size': BATCH_SIZE,
+        'n_batches': NUM_BATCHES,
+        'update_every': UPDATE_EVERY,
+        'gamma': GAMMA,
+        'tau': TAU,
+        'lr_actor': LR_ACTOR,
+        'lr_critic': LR_CRITIC,
+        'noise_decay': NOISE_DECAY,
+    }
+
+    agent = Agent(state_size, action_size, **agent_config)
+    scores, scores_average = train(env, agent)
     print(time.time() - t0, 'seconds')
 
     fig = plt.figure()
