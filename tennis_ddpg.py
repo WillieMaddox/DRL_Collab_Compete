@@ -45,6 +45,7 @@ class UnityTennisEnv:
         self.num_agents = env_info.vector_observations.shape[0]
         self.state_size = self._get_obs(env_info.vector_observations).shape[1]
         self.action_size = brain.vector_action_space_size
+        self.session_name = str(int(time.time()))
 
     def _get_obs(self, states):
         """Create obs from states"""
