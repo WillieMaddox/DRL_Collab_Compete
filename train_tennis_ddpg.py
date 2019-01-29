@@ -86,8 +86,8 @@ def train(env, agent, preload_steps=0, n_episodes=2000, t_max=1000, print_interv
         param_noise.adapt(ddpg_dist)
 
 
-        summary = f'\rEpisode {i_episode:>4}  Buffer Size: {len(agent.buffer):>6}  Noise: {agent.noise_scale:.2f}  Eps: {agent.epsilon:.4f}  t_step: {t_step:4}  Episode Score (Avg): {episode_reward:.2f} ({mean:.3f})'
 
+        summary = f'\rEpisode {i_episode:>4}  Buffer Size: {len(agent.buffer):>6}  Noise: {agent.noise_scale:.2f}  t_step: {t_step:4}  Episode Score (Avg): {episode_reward:.2f} ({mean:.3f})'
         if mean >= 0.5 and mean > best:
             summary += " (saved)"
             best = mean

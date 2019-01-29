@@ -131,8 +131,6 @@ class Agent:
         self.noise = OUNoise(action_size, sigma=0.05)
         self.noise_decay = noise_decay
         self.noise_scale = 1.0
-        self.count = 0
-        self.epsilon = 1.0
 
         self.buffer = ReplayBuffer(buffer_size, batch_size)
         # Keep track of how many times we've updated weights
@@ -174,8 +172,6 @@ class Agent:
             param += random * param_noise.current_stddev
 
     def reset(self):
-        self.count += 1
-        self.epsilon = np.exp(-0.0005 * self.count)
         self.noise.reset()
 
     def step(self, experience):
