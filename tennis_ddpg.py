@@ -79,7 +79,7 @@ class Agent:
     def __init__(self, state_size, action_size,
                  buffer_size=int(1e5),
                  batch_size=256,
-                 n_batches=1,
+                 learn_every=1,
                  update_every=1,
                  gamma=0.99,
                  tau=0.02,
@@ -98,11 +98,13 @@ class Agent:
         self.state_size = state_size
         self.action_size = action_size
         self.update_every = update_every
+        self.learn_every = learn_every
         # self.seed = random.seed(random_seed)
         self.batch_size = batch_size
         self.gamma = gamma
         self.tau = tau
         self.i_updates = 0
+        self.i_step = 0
 
         # Actor Network (w/ Target Network)
         self.actor_local = Actor(state_size, action_size).to(device)
@@ -135,8 +137,6 @@ class Agent:
 
         self.buffer = ReplayBuffer(buffer_size, batch_size)
         # Keep track of how many times we've updated weights
-        self.n_batches = n_batches
-        self.n_steps = 0
 
     def act(self, states, perturb_mode=True, train_mode=True):
         """Returns actions for given state as per current policy."""
@@ -176,10 +176,11 @@ class Agent:
 
     def step(self, experience):
         self.buffer.push(experience)
-        self.n_steps += 1
-        if self.n_steps % self.update_every == 0 and self.n_steps > self.batch_size * self.n_batches:
-            for _ in range(self.n_batches):
+        self.i_step += 1
+        if len(self.buffer) > self.batch_size:
+            if self.i_step % self.learn_every == 0:
                 self.learn()
+            if self.i_step % self.update_every == 0:
                 self.update()  # soft update the target network towards the actual networks
 
     def learn(self):

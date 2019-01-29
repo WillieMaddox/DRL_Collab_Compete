@@ -8,7 +8,6 @@ from tennis_ddpg import PSNoise
 
 WEIGHT_DECAY = 0    # L2 weight decay
 NOISE_DECAY = 0.99995   #
-NUM_BATCHES = 1         # Roll out this many batches when training.
 PRELOAD_STEPS = int(1e4)  # initialize the replay buffer with this many transitions.
 BUFFER_SIZE = int(2e5)    # replay buffer size
 BATCH_SIZE = 256          # minibatch size
@@ -17,6 +16,7 @@ TAU = 0.02                # for soft update of target parameters
 LR_ACTOR = 2e-4           # Learning rate of the actor
 LR_CRITIC = 2e-3          # Learning rate of the critic
 UPDATE_EVERY = 1          # Update the network after this many steps.
+LEARN_EVERY = 1           # Train local network ever n-steps
 NUM_EPISODES = 4000
 
 
@@ -118,7 +118,7 @@ if __name__ == '__main__':
     agent_config = {
         'buffer_size': BUFFER_SIZE,
         'batch_size': BATCH_SIZE,
-        'n_batches': NUM_BATCHES,
+        'learn_every': LEARN_EVERY,
         'update_every': UPDATE_EVERY,
         'gamma': GAMMA,
         'tau': TAU,
