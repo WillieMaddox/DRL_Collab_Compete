@@ -23,7 +23,7 @@ use_cuda = device != "cpu"
 OBSNORM = 1.0 / np.array([13, 7, 30, 7, 13, 7, 30, 7])
 
 
-class UnityEnv:
+class UnityTennisEnv:
     """Unity Environment Wrapper
 
     """

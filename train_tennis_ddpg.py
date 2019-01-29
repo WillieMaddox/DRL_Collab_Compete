@@ -2,7 +2,7 @@ import os
 import time
 from collections import deque
 import numpy as np
-from tennis_ddpg import UnityEnv, Agent
+from tennis_ddpg import UnityTennisEnv, Agent
 from tennis_ddpg import ddpg_distance_metric, AdaptiveParamNoiseSpec
 
 BUFFER_SIZE = int(1e5)  # replay buffer size
@@ -127,7 +127,7 @@ def train(env, agent, preload_steps=0, n_episodes=2000, t_max=1000, print_interv
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
 
-    env = UnityEnv(file_name='Tennis_Linux/Tennis.x86_64', no_graphics=True)
+    env = UnityTennisEnv(file_name='Tennis_Linux/Tennis.x86_64', no_graphics=True)
     state_size = env.num_agents * env.state_size
     action_size = env.num_agents * env.action_size
 
