@@ -29,7 +29,7 @@ class UnityTennisEnv:
     """
 
     def __init__(self,
-                 file_name='data/Tennis_Windows_x86_64/Tennis.exe',
+                 file_name='Tennis_Linux/Tennis.x86_64',
                  no_graphics=True,
                  normalize=False,
                  remove_ball_velocity=True):
