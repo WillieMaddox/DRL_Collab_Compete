@@ -3,7 +3,8 @@ import time
 from collections import deque
 import numpy as np
 from tennis_ddpg import UnityTennisEnv, Agent
-from tennis_ddpg import ddpg_distance_metric, AdaptiveParamNoiseSpec
+from tennis_ddpg import ddpg_distance_metric
+from tennis_ddpg import PSNoise
 
 BUFFER_SIZE = int(1e5)  # replay buffer size
 BATCH_SIZE = 256        # minibatch size
@@ -49,7 +50,7 @@ def train(env, agent, preload_steps=0, n_episodes=2000, t_max=1000, print_interv
         if dones.any():
             obs = env.reset()
 
-    param_noise = AdaptiveParamNoiseSpec()
+    param_noise = PSNoise()
 
     for i_episode in range(1, n_episodes + 1):
         episode_rewards = np.zeros((env.num_agents,))  # initialize the score (for each agent)
