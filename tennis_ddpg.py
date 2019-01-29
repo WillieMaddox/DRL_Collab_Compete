@@ -85,7 +85,8 @@ class Agent:
                  tau=0.02,
                  lr_actor=2e-4,
                  lr_critic=2e-3,
-                 noise_decay=0.99995,
+                 use_asn=True,
+                 asn_kwargs={},
                  restore=None):
         """Initialize an Agent object.
 
@@ -105,6 +106,7 @@ class Agent:
         self.tau = tau
         self.i_updates = 0
         self.i_step = 0
+        self.use_asn = use_asn
 
         # Actor Network (w/ Target Network)
         self.actor_local = Actor(state_size, action_size).to(device)
@@ -131,9 +133,8 @@ class Agent:
         policy_update(self.critic_local, self.critic_target, 1.0)
 
         # Noise process
-        self.noise = OUNoise(action_size, sigma=0.05)
-        self.noise_decay = noise_decay
-        self.noise_scale = 1.0
+        if self.use_asn:
+            self.action_noise = OUNoise(action_size, **asn_kwargs)
 
         self.buffer = ReplayBuffer(buffer_size, batch_size)
         # Keep track of how many times we've updated weights
@@ -150,8 +151,7 @@ class Agent:
             actions = actor(states).cpu().numpy()
 
         if train_mode:
-            actions += self.noise.sample() * self.noise_scale
-            self.noise_scale = max(self.noise_scale * self.noise_decay, 0.01)
+            actions += self.action_noise.sample()
 
         self.actor_local.train()
         self.actor_perturbed.train()
@@ -172,7 +172,7 @@ class Agent:
             param += random * param_noise.current_stddev
 
     def reset(self):
-        self.noise.reset()
+        self.action_noise.reset()
 
     def step(self, experience):
         self.buffer.push(experience)
@@ -263,11 +263,14 @@ class PSNoise:
 class OUNoise:
     """Ornstein-Uhlenbeck process."""
 
-    def __init__(self, size, mu=0., theta=0.15, sigma=0.2):
+    def __init__(self, size, mu=0., theta=0.15, sigma=0.2, scale_start=1.0, scale_end=0.01, decay=1.0):
         """Initialize parameters and noise process."""
         self.mu = mu * np.ones(size)
         self.theta = theta
         self.sigma = sigma
+        self.scale = scale_start
+        self.scale_end = scale_end
+        self.decay = decay
         self.state = copy.copy(self.mu)
 
     def reset(self):
@@ -277,9 +280,11 @@ class OUNoise:
     def sample(self):
         """Update internal state and return it as a noise sample."""
         x = self.state
+        s = self.scale
         dx = self.theta * (self.mu - x) + self.sigma * np.random.randn(*self.mu.shape)
         self.state = x + dx
-        return self.state
+        self.scale = max(self.scale * self.decay, self.scale_end)
+        return self.state * s
 
 
 class ReplayBuffer:

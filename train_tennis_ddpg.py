@@ -7,7 +7,6 @@ from tennis_ddpg import ddpg_distance_metric
 from tennis_ddpg import PSNoise
 
 WEIGHT_DECAY = 0    # L2 weight decay
-NOISE_DECAY = 0.99995   #
 PRELOAD_STEPS = int(1e4)  # initialize the replay buffer with this many transitions.
 BUFFER_SIZE = int(2e5)    # replay buffer size
 BATCH_SIZE = 256          # minibatch size
@@ -18,6 +17,16 @@ LR_CRITIC = 2e-3          # Learning rate of the critic
 UPDATE_EVERY = 1          # Update the network after this many steps.
 LEARN_EVERY = 1           # Train local network ever n-steps
 NUM_EPISODES = 4000
+
+USE_ASN = True  # Use Action Space Noise
+ASN_KWARGS = {
+    'mu': 0.0,
+    'theta': 0.15,
+    'sigma': 0.20,
+    'scale_start': 1.0,
+    'scale_end': 0.01,
+    'decay': 0.99995
+}
 
 
 def train(env, agent, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISODES, t_max=2000, print_interval=100):
@@ -124,7 +133,8 @@ if __name__ == '__main__':
         'tau': TAU,
         'lr_actor': LR_ACTOR,
         'lr_critic': LR_CRITIC,
-        'noise_decay': NOISE_DECAY,
+        'use_asn': USE_ASN,
+        'asn_kwargs': ASN_KWARGS,
     }
 
     agent = Agent(state_size, action_size, **agent_config)
