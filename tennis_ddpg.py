@@ -43,31 +43,28 @@ class UnityTennisEnv:
         env_info = self.env.reset(train_mode=True)[self.brain_name]
 
         self.num_agents = env_info.vector_observations.shape[0]
-        self.state_size = self.get_obs(env_info.vector_observations).shape[1]
+        self.state_size = self._get_obs(env_info.vector_observations).shape[1]
         self.action_size = brain.vector_action_space_size
         self.max_reached = env_info.max_reached
 
-    def get_obs(self, states):
-        """Create obs and obs_full from states"""
+    def _get_obs(self, states):
+        """Create obs from states"""
         states = states.reshape((self.num_agents, 3, 8))  # -> (n_agents, n_timesteps, n_obs)
         if self.normalize:
             states = states * OBSNORM[None, None, :]  # Normalize
         if self.remove_ball_velocity:
-            states = states[:, :, :-2]  # remove buggy ball velocity.
-        obs = states.reshape((self.num_agents, -1))
-        return obs
+            states = states[:, :, :-2]  # BUG: temp fix to remove buggy ball velocity.
+        return states.reshape((self.num_agents, -1))
 
     def reset(self, train_mode=True):
         env_info = self.env.reset(train_mode=train_mode)[self.brain_name]
-        states = env_info.vector_observations
-        obs = self.get_obs(states)
+        obs = self._get_obs(env_info.vector_observations)
         return obs
 
     def step(self, actions):
         actions = np.clip(actions, -1, 1)  # all actions between -1 and 1
         env_info = self.env.step(actions)[self.brain_name]
-        states_next = env_info.vector_observations
-        obs_next = self.get_obs(states_next)
+        obs_next = self._get_obs(env_info.vector_observations)
         rewards = np.array(env_info.rewards)
         dones = np.array(env_info.local_done).astype(np.float)
         self.max_reached = env_info.max_reached
