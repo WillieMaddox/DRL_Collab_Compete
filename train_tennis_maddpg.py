@@ -109,11 +109,6 @@ def train(multi_agent, n_episodes=2000, t_max=1000, print_interval=200, update_i
             if t_step >= t_max:  # exit loop if episode finished
                 break
 
-            if np.any(env_info.max_reached):
-                print(t_step)
-                print(env_info.max_reached)
-                raise ValueError
-
         scores.append(np.max(episode_rewards))
         scores_window.append(np.max(episode_rewards))  # save most recent score
         mean = np.mean(scores_window)

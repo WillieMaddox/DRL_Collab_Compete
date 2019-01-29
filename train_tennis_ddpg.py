@@ -74,12 +74,6 @@ def train(env, agent, preload_steps=0, n_episodes=2000, t_max=1000, print_interv
             agent.step(transition)
             obs = obs_next
             episode_rewards += rewards  # update the score (for each agent)
-
-            # if np.any(env.max_reached):
-            #     print(t_step)
-            #     print(env.max_reached)
-            #     print(dones)
-
             if dones.any():  # exit loop if episode finished
                 break
 

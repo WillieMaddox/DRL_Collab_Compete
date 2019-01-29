@@ -45,7 +45,6 @@ class UnityTennisEnv:
         self.num_agents = env_info.vector_observations.shape[0]
         self.state_size = self._get_obs(env_info.vector_observations).shape[1]
         self.action_size = brain.vector_action_space_size
-        self.max_reached = env_info.max_reached
 
     def _get_obs(self, states):
         """Create obs from states"""
@@ -67,7 +66,6 @@ class UnityTennisEnv:
         obs_next = self._get_obs(env_info.vector_observations)
         rewards = np.array(env_info.rewards)
         dones = np.array(env_info.local_done).astype(np.float)
-        self.max_reached = env_info.max_reached
         return obs_next, rewards, dones
 
     def close(self):
