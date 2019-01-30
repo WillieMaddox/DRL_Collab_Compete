@@ -1,8 +1,9 @@
 import random
 import copy
+import time
 from math import sqrt
 from itertools import islice
-from collections import namedtuple, deque
+from collections import deque
 import numpy as np
 
 import torch
@@ -86,6 +87,7 @@ class Agent:
                  tau=0.02,
                  lr_actor=2e-4,
                  lr_critic=2e-3,
+                 random_seed=None,
                  use_asn=True,
                  asn_kwargs={},
                  use_psn=False,
@@ -103,7 +105,6 @@ class Agent:
         self.action_size = action_size
         self.update_every = update_every
         self.learn_every = learn_every
-        # self.seed = random.seed(random_seed)
         self.batch_size = batch_size
         self.gamma = gamma
         self.tau = tau
@@ -113,13 +114,13 @@ class Agent:
         self.use_asn = use_asn
         self.use_psn = use_psn
 
-        # Actor Network (w/ Target Network)
+        if random_seed is not None:
+            random.seed(random_seed)
+
         self.actor_local = Actor(state_size, action_size).to(device)
         self.actor_target = Actor(state_size, action_size).to(device)
         if self.use_psn:
             self.actor_perturbed = Actor(state_size, action_size).to(device)
-
-        # Critic Network (w/ Target Network)
         self.critic_local = Critic(state_size, action_size).to(device)
         self.critic_target = Critic(state_size, action_size).to(device)
 
@@ -313,7 +314,7 @@ class OUNoise:
 class ExperienceReplay:
     """Fixed-size buffer to store experience tuples."""
 
-    def __init__(self, buffer_size, batch_size):
+    def __init__(self, buffer_size, batch_size, seed=None):
         """Initialize an Experience Replay Buffer object.
 
         Params
@@ -321,6 +322,7 @@ class ExperienceReplay:
             buffer_size (int): maximum size of buffer
             batch_size (int): size of each training batch
         """
+        self.seed = random.seed(seed) if seed is not None else seed
         self.batch_size = batch_size
         self.memory = deque(maxlen=buffer_size)
 

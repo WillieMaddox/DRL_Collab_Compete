@@ -4,7 +4,6 @@ from collections import deque
 import numpy as np
 from tennis_ddpg import UnityTennisEnv, Agent
 
-WEIGHT_DECAY = 0    # L2 weight decay
 PRELOAD_STEPS = int(1e4)  # initialize the replay buffer with this many transitions.
 BUFFER_SIZE = int(2e5)    # replay buffer size
 BATCH_SIZE = 256          # minibatch size
@@ -14,6 +13,7 @@ LR_ACTOR = 2e-4           # Learning rate of the actor
 LR_CRITIC = 2e-3          # Learning rate of the critic
 UPDATE_EVERY = 1          # Update the network after this many steps.
 LEARN_EVERY = 1           # Train local network ever n-steps
+RANDOM_SEED = 0
 NUM_EPISODES = 4000
 
 USE_ASN = True  # Use Action Space Noise
@@ -34,7 +34,8 @@ PSN_KWARGS = {
 }
 
 
-def train(env, agent, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISODES, t_max=2000, print_interval=100):
+
+def train(env, agent, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISODES, print_interval=100):
     """Train using Deep Deterministic Policy Gradients.
 
     Params
@@ -50,7 +51,7 @@ def train(env, agent, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISODES, t_ma
     early_stop = 0.5
 
     # log_path = os.getcwd() + "/log"
-    model_dir = os.getcwd() + "/model_dir"
+    model_dir = os.getcwd() + "/model_dir/tennis"
     os.makedirs(model_dir, exist_ok=True)
 
     print('BUFFER_SIZE:', BUFFER_SIZE)
@@ -84,8 +85,6 @@ def train(env, agent, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISODES, t_ma
                 break
 
             t_step += 1  # increment the number of steps seen this episode.
-            if t_step >= t_max:  # exit loop if episode finished
-                break
 
         episode_reward = np.max(episode_rewards)
         scores_window.append(episode_reward)  # save most recent score
@@ -131,6 +130,7 @@ if __name__ == '__main__':
         'tau': TAU,
         'lr_actor': LR_ACTOR,
         'lr_critic': LR_CRITIC,
+        'random_seed': RANDOM_SEED,
         'use_asn': USE_ASN,
         'asn_kwargs': ASN_KWARGS,
         'use_psn': USE_PSN,
@@ -138,6 +138,7 @@ if __name__ == '__main__':
     }
 
     agent = Agent(state_size, action_size, **agent_config)
+    print('session_name', env.session_name)
     scores, scores_average = train(env, agent)
     print(time.time() - t0, 'seconds')
 
