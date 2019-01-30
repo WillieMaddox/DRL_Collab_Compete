@@ -87,6 +87,8 @@ class Agent:
                  lr_critic=2e-3,
                  use_asn=True,
                  asn_kwargs={},
+                 use_psn=False,
+                 psn_kwargs={},
                  restore=None):
         """Initialize an Agent object.
 
@@ -104,14 +106,17 @@ class Agent:
         self.batch_size = batch_size
         self.gamma = gamma
         self.tau = tau
+        # Keep track of how many times we've updated weights
         self.i_updates = 0
         self.i_step = 0
         self.use_asn = use_asn
+        self.use_psn = use_psn
 
         # Actor Network (w/ Target Network)
         self.actor_local = Actor(state_size, action_size).to(device)
         self.actor_target = Actor(state_size, action_size).to(device)
-        self.actor_perturbed = Actor(state_size, action_size).to(device)
+        if self.use_psn:
+            self.actor_perturbed = Actor(state_size, action_size).to(device)
 
         # Critic Network (w/ Target Network)
         self.critic_local = Critic(state_size, action_size).to(device)
@@ -122,6 +127,8 @@ class Agent:
             checkpoint = torch.load(restore, map_location=device)
             self.actor_local.load_state_dict(checkpoint[0]['actor'])
             self.actor_target.load_state_dict(checkpoint[0]['actor'])
+            if self.use_psn:
+                self.actor_perturbed.load_state_dict(checkpoint[0]['actor'])
             self.critic_local.load_state_dict(checkpoint[0]['critic'])
             self.critic_target.load_state_dict(checkpoint[0]['critic'])
 
@@ -136,29 +143,32 @@ class Agent:
         if self.use_asn:
             self.action_noise = OUNoise(action_size, **asn_kwargs)
 
+        if self.use_psn:
+            self.param_noise = PSNoise(**psn_kwargs)
         self.buffer = ReplayBuffer(buffer_size, batch_size)
-        # Keep track of how many times we've updated weights
 
     def act(self, states, perturb_mode=True, train_mode=True):
         """Returns actions for given state as per current policy."""
         if not train_mode:
             self.actor_local.eval()
-            self.actor_perturbed.eval()
+            if self.use_psn:
+                self.actor_perturbed.eval()
 
         with torch.no_grad():
             states = torch.from_numpy(states).float().to(device)
-            actor = self.actor_perturbed if perturb_mode else self.actor_local
+            actor = self.actor_perturbed if (self.use_psn and perturb_mode) else self.actor_local
             actions = actor(states).cpu().numpy()
 
         if train_mode:
             actions += self.action_noise.sample()
 
         self.actor_local.train()
-        self.actor_perturbed.train()
+        if self.use_psn:
+            self.actor_perturbed.train()
 
         return np.clip(actions, -1, 1)
 
-    def perturb_actor_parameters(self, param_noise):
+    def perturb_actor_parameters(self):
         """Apply parameter space noise to actor model, for exploration"""
         policy_update(self.actor_local, self.actor_perturbed, 1.0)
         params = self.actor_perturbed.state_dict()
@@ -169,10 +179,12 @@ class Agent:
             random = torch.randn(param.shape)
             if use_cuda:
                 random = random.cuda()
-            param += random * param_noise.current_stddev
+            param += random * self.param_noise.current_stddev
 
     def reset(self):
         self.action_noise.reset()
+        if self.use_psn:
+            self.perturb_actor_parameters()
 
     def step(self, experience):
         self.buffer.push(experience)
@@ -237,6 +249,15 @@ class Agent:
                      'critic_optim_params': self.critic_optimizer.state_dict()}
         save_dict_list.append(save_dict)
         torch.save(save_dict_list, filename)
+
+    def postprocess(self, t_step):
+        if self.use_psn and t_step > 0:
+            perturbed_states, perturbed_actions, _, _, _ = self.buffer.tail(t_step)
+            unperturbed_actions = self.act(np.array(perturbed_states), False, False)
+            diff = np.array(perturbed_actions) - unperturbed_actions
+            mean_diff = np.mean(np.square(diff), axis=0)
+            dist = sqrt(np.mean(mean_diff))
+            self.param_noise.adapt(dist)
 
 
 class PSNoise:
@@ -321,12 +342,3 @@ class ReplayBuffer:
         return len(self.deque)
 
 
-def ddpg_distance_metric(actions1, actions2):
-    """
-    Compute "distance" between actions taken by two policies at the same states
-    Expects numpy arrays
-    """
-    diff = actions1-actions2
-    mean_diff = np.mean(np.square(diff), axis=0)
-    dist = sqrt(np.mean(mean_diff))
-    return dist

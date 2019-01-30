@@ -3,8 +3,6 @@ import time
 from collections import deque
 import numpy as np
 from tennis_ddpg import UnityTennisEnv, Agent
-from tennis_ddpg import ddpg_distance_metric
-from tennis_ddpg import PSNoise
 
 WEIGHT_DECAY = 0    # L2 weight decay
 PRELOAD_STEPS = int(1e4)  # initialize the replay buffer with this many transitions.
@@ -26,6 +24,13 @@ ASN_KWARGS = {
     'scale_start': 1.0,
     'scale_end': 0.01,
     'decay': 0.99995
+}
+
+USE_PSN = True  # Use Parameter Space Noise
+PSN_KWARGS = {
+    'initial_stddev': 0.1,
+    'desired_action_stddev': 0.1,
+    'adoption_coefficient': 1.01
 }
 
 
@@ -61,13 +66,10 @@ def train(env, agent, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISODES, t_ma
         if dones.any():
             obs = env.reset()
 
-    param_noise = PSNoise()
-
     for i_episode in range(1, n_episodes + 1):
         episode_rewards = np.zeros((env.num_agents,))  # initialize the score (for each agent)
         obs = env.reset()  # reset the environment
         agent.reset()
-        agent.perturb_actor_parameters(param_noise)
 
         t_step = 0
         while True:
@@ -91,11 +93,7 @@ def train(env, agent, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISODES, t_ma
         mean = np.mean(scores_window)
         scores_average.append(mean)
 
-        perturbed_states, perturbed_actions, _, _, _ = agent.buffer.tail(t_step)
-        unperturbed_actions = agent.act(np.array(perturbed_states), False, False)
-        ddpg_dist = ddpg_distance_metric(np.array(perturbed_actions), unperturbed_actions)
-        param_noise.adapt(ddpg_dist)
-
+        agent.postprocess(t_step)
 
 
         summary = f'\rEpisode {i_episode:>4}  Buffer Size: {len(agent.buffer):>6}  Noise: {agent.noise_scale:.2f}  t_step: {t_step:4}  Episode Score (Avg): {episode_reward:.2f} ({mean:.3f})'
@@ -135,6 +133,8 @@ if __name__ == '__main__':
         'lr_critic': LR_CRITIC,
         'use_asn': USE_ASN,
         'asn_kwargs': ASN_KWARGS,
+        'use_psn': USE_PSN,
+        'psn_kwargs': PSN_KWARGS,
     }
 
     agent = Agent(state_size, action_size, **agent_config)
