@@ -1,6 +1,8 @@
+import os
 import random
 import copy
 import time
+from shutil import copyfile
 from math import sqrt
 from itertools import islice
 from collections import deque
@@ -258,7 +260,10 @@ class Agent:
         policy_update(self.actor_local, self.actor_target, self.tau)
         policy_update(self.critic_local, self.critic_target, self.tau)
 
-    def save_model(self, filename):
+    def save_model(self, model_dir, session_name, i_episode, best):
+
+        filename = os.path.join(model_dir, f'ddpg-{session_name}-EP_{i_episode}-score_{best:.3f}.pt')
+        filename_best = os.path.join(model_dir, f'ddpg-{session_name}-best.pt')
         save_dict_list = []
         save_dict = {'actor': self.actor_local.state_dict(),
                      'actor_optim_params': self.actor_optimizer.state_dict(),
@@ -266,6 +271,7 @@ class Agent:
                      'critic_optim_params': self.critic_optimizer.state_dict()}
         save_dict_list.append(save_dict)
         torch.save(save_dict_list, filename)
+        copyfile(filename, filename_best)
 
     def postprocess(self, t_step):
         if self.use_psn and t_step > 0:

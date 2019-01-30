@@ -104,7 +104,7 @@ def train(env, agent, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISODES, prin
         if mean >= 0.5 and mean > best:
             summary += " (saved)"
             best = mean
-            agent.save_model(os.path.join(model_dir, f'tennis-episode-{i_episode}.pt'))
+            agent.save_model(model_dir, env.session_name, i_episode, best)
 
         if i_episode % print_interval == 0:
             print(summary)
@@ -152,8 +152,17 @@ if __name__ == '__main__':
     ax = fig.add_subplot(111)
     plt.plot(np.arange(1, len(scores) + 1), scores)
     plt.plot(np.arange(1, len(scores_average) + 1), scores_average)
+    ax.axhline(y=0.5, xmin=0.0, xmax=1.0, linestyle='--')
+    plt.title(f'Final Buffer Length {len(agent.buffer)}')
     plt.ylabel('Score')
     plt.xlabel('Episode #')
+    filename = f'model_dir/tennis/ddpg_{env.session_name}'
+    if USE_PER:
+        filename += f'-PER' if USE_PER else f'-ER'
+    filename += f'_{PRELOAD_STEPS:d}'
+    if USE_PSN:
+        filename += f'-PSN'
+    plt.savefig(filename)
     plt.show()
 
     env.close()
