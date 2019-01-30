@@ -1,261 +1,290 @@
 import random
-import copy
+import time
+from collections import namedtuple
 import numpy as np
-from collections import namedtuple, deque
 
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from model import Actor, Critic, Network
-from utils import transpose_list, transpose_to_tensor
+from unityagents import UnityEnvironment
+from model import Actor, Critic
 from utils import policy_update
+from tennis_ddpg import OUNoise, PSNoise
+from tennis_ddpg import ExperienceReplay, PrioritizedExperienceReplay
 
-BUFFER_SIZE = int(1e5)  # replay buffer size
-BATCH_SIZE = 256        # minibatch size
-GAMMA = 0.99            # discount factor
-TAU = 0.02             # for soft update of target parameters
-LR_ACTOR = 2e-4         # Learning rate of the actor
-LR_CRITIC = 2e-3        # Learning rate of the critic
-WEIGHT_DECAY = 0    # L2 weight decay
-NOISE_DECAY = 0.99995   #
-UPDATE_EVERY = 1        # Update the network after this many steps.
-NUM_BATCHES = 1         # Roll out this many batches when training.
 # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# use_cuda = torch.cuda.is_available()
+
 device = "cpu"
+use_cuda = device != "cpu"
 
 OBSNORM = 1.0 / np.array([13, 7, 30, 7, 13, 7, 30, 7])
 
 Obs = namedtuple("Obs", field_names=["px", "py", "vx", "vy", "bx", "by"])
 
 
-class MADDPG:
-    def __init__(self, state_size, action_size, num_agents):
-        super(MADDPG, self).__init__()
+class UnityTennisEnv:
+    """Unity Environment Wrapper
 
-        # critic input = obs_full + actions = 24+2+2=28
-        in_actor = 18
-        in_critic = 36
-        self.agents = [DDPGAgent(in_actor, 32, 16, action_size, in_critic + action_size * num_agents, 32, 16),
-                       DDPGAgent(in_actor, 32, 16, action_size, in_critic + action_size * num_agents, 32, 16)]
+    """
 
-        self.epsilon = 1.0
-        self.gamma = GAMMA
-        self.count = 0
-        self.tau = TAU
+    def __init__(self,
+                 file_name='Tennis_Linux/Tennis.x86_64',
+                 no_graphics=True,
+                 normalize=False,
+                 remove_ball_velocity=True):
 
-    def get_actors(self):
-        """get actors of all the agents in the MADDPG object"""
-        actors = [agent.actor for agent in self.agents]
-        return actors
+        self.normalize = normalize
+        self.remove_ball_velocity = remove_ball_velocity
 
-    def get_target_actors(self):
-        """get target_actors of all the agents in the MADDPG object"""
-        target_actors = [agent.target_actor for agent in self.agents]
-        return target_actors
+        self.env = UnityEnvironment(file_name=file_name, no_graphics=no_graphics)
+        self.brain_name = self.env.brain_names[0]
+        brain = self.env.brains[self.brain_name]
+        env_info = self.env.reset(train_mode=True)[self.brain_name]
 
-    def act(self, obs_all_agents):
-        """get actions from all the agents in the MADDPG object"""
-        actions = [agent.act(obs, self.epsilon) for agent, obs in zip(self.agents, obs_all_agents)]
-        return actions
+        self.num_agents = env_info.vector_observations.shape[0]
+        self.state_size = self._get_obs(env_info.vector_observations).shape[1]
+        self.action_size = brain.vector_action_space_size
+        self.session_name = str(int(time.time()))
 
-    def target_act(self, obs_all_agents):
-        """get target actions from all the agents in the MADDPG object """
-        target_actions = [agent.target_act(obs) for agent, obs in zip(self.agents, obs_all_agents)]
-        return target_actions
+    def _get_obs(self, states):
+        """Create obs from states"""
+        states = states.reshape((self.num_agents, 3, 8))  # -> (n_agents, n_timesteps, n_obs)
+        if self.normalize:
+            states = states * OBSNORM[None, None, :]  # Normalize
+        if self.remove_ball_velocity:
+            states = states[:, :, :-2]  # remove buggy ball velocity.
+        return states.reshape((self.num_agents, -1))
 
-    def get_obs(self, states):
-        """Create obs and obs_full from states"""
+    def reset(self, train_mode=True):
+        env_info = self.env.reset(train_mode=train_mode)[self.brain_name]
+        obs = self._get_obs(env_info.vector_observations)
+        return obs
 
-        # states = states.reshape((2, 3, 8))[:, -1, :-2]
-        # states = states * OBSNORM[None, :]
-        states = states.reshape((2, 3, 8))[:, :, :-2]
-        states = states * OBSNORM[None, None, :]
-        # obs1 = Obs(*states[0])
-        # obs2 = Obs(*states[1])
-        # obs = np.array([[obs1.vx, obs1.vy, obs2.px - obs1.px, obs2.py - obs1.py,
-        #                  obs2.vx, obs2.vy, obs1.bx - obs1.px, obs1.by - obs1.py],
-        #                 [obs2.vx, obs2.vy, obs1.px - obs2.px, obs1.py - obs2.py,
-        #                  obs1.vx, obs1.vy, obs2.bx - obs2.px, obs2.by - obs2.py]])
-        # obs = np.array([states[0] - states[1], states[1] - states[0]])
-        # flip_array = np.ones((10,))
-        # flip_array[0] = -1
-        # flip_array[2] = -1
-        # obs_full = np.concatenate([states[0, :4], states[1]]) * flip_array
-        obs = states.reshape((2, -1))
-        obs_full = states.reshape((1, -1))[0]
-        # obs = states
-        # obs_full = np.concatenate([states[0, :4], states[1]])
+    def step(self, actions):
+        actions = np.clip(actions, -1, 1)  # all actions between -1 and 1
+        env_info = self.env.step(actions.reshape(self.num_agents, -1))[self.brain_name]
+        obs_next = self._get_obs(env_info.vector_observations)
+        rewards = np.array(env_info.rewards).reshape((2, 1))
+        dones = np.array(env_info.local_done).reshape((2, 1)).astype(np.float)
+        return obs_next, rewards, dones
 
-        return obs[None, :], obs_full[None, :]
-
-    def learn(self, samples, agent_number, logger=None):
-        """update the critics and actors of all the agents """
-
-        # need to transpose each element of the samples
-        # to flip obs[parallel_agent][agent_number] to
-        # obs[agent_number][parallel_agent]
-        obs, obs_full, action, reward, next_obs, next_obs_full, done = map(transpose_to_tensor, samples)
-
-        # ---------------------------- update critic ---------------------------- #
-        obs_full = torch.stack(obs_full)
-        next_obs_full = torch.stack(next_obs_full)
-
-        agent = self.agents[agent_number]
-        agent.critic_optimizer.zero_grad()
-
-        # critic loss = batch mean of (y- Q(s,a) from target network)^2
-        # y = reward of this timestep + discount * Q(st+1,at+1) from target network
-        target_actions = self.target_act(next_obs)
-
-        target_actions = torch.cat(target_actions, dim=1)
-        target_critic_input = torch.cat((next_obs_full.t(), target_actions), dim=1).to(device)
-
-        with torch.no_grad():
-            q_targets_next = agent.target_critic(target_critic_input)
-
-        q_targets = reward[agent_number].view(-1, 1) + self.gamma * q_targets_next * (1 - done[agent_number].view(-1, 1))
-
-        action = torch.cat(action, dim=1)
-        critic_input = torch.cat((obs_full.t(), action), dim=1).to(device)
-
-        q_expected = agent.critic(critic_input)
-
-        huber_loss = torch.nn.SmoothL1Loss()
-        critic_loss = huber_loss(q_expected, q_targets.detach())
-        # critic_loss = F.mse_loss(q_expected, q_targets)
-        critic_loss.backward()
-        # torch.nn.utils.clip_grad_norm_(agent.critic.parameters(), 0.5)
-        torch.nn.utils.clip_grad_norm_(agent.critic.parameters(), 1)
-        agent.critic_optimizer.step()
-
-        # ---------------------------- update actor ---------------------------- #
-        # update actor network using policy gradient
-        agent.actor_optimizer.zero_grad()
-        # make input to agent
-        # detach the other agents to save computation
-        # saves some time for computing derivative
-        actions_pred = [self.agents[i].actor(ob) if i == agent_number else self.agents[i].actor(ob).detach() for i, ob in enumerate(obs)]
-
-        # combine all the actions and observations for input to critic
-        # many of the obs are redundant, and obs[1] contains all useful information already
-        actions_pred = torch.cat(actions_pred, dim=1)
-        critic_input2 = torch.cat((obs_full.t(), actions_pred), dim=1)
-
-        # get the policy gradient
-        actor_loss = -agent.critic(critic_input2).mean()
-        actor_loss.backward()
-        # torch.nn.utils.clip_grad_norm_(agent.actor.parameters(), 0.5)
-        # torch.nn.utils.clip_grad_norm_(agent.actor.parameters(), 1)
-        agent.actor_optimizer.step()
+    def close(self):
+        self.env.close()
 
 
-    def reset(self):
-        self.count += 1
-        self.epsilon = np.exp(-0.0005 * self.count)
-        for agent in self.agents:
-            agent.noise.reset()
+class Agent:
+    """Interacts with and learns from the environment."""
+    buffer = None
+    share_buffer = False
 
-    def update_targets(self):
-        """soft update targets"""
-        # self.iter += 1
-        for agent in self.agents:
-            policy_update(agent.actor, agent.target_actor, self.tau)
-            policy_update(agent.critic, agent.target_critic, self.tau)
-
-    def save_model(self, filename):
-        save_dict_list = []
-        for agent in self.agents:
-            save_dict = {'actor_params': agent.actor.state_dict(),
-                         'actor_optim_params': agent.actor_optimizer.state_dict(),
-                         'critic_params': agent.critic.state_dict(),
-                         'critic_optim_params': agent.critic_optimizer.state_dict()}
-            save_dict_list.append(save_dict)
-        torch.save(save_dict_list, filename)
-
-
-class DDPGAgent:
-    def __init__(self, in_actor, hidden_in_actor, hidden_out_actor, out_actor, in_critic, hidden_in_critic, hidden_out_critic):
-        super(DDPGAgent, self).__init__()
-
-        self.actor = Network(in_actor, hidden_in_actor, hidden_out_actor, out_actor, actor=True).to(device)
-        self.target_actor = Network(in_actor, hidden_in_actor, hidden_out_actor, out_actor, actor=True).to(device)
-        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=LR_ACTOR)
-
-        self.critic = Network(in_critic, hidden_in_critic, hidden_out_critic, 1).to(device)
-        self.target_critic = Network(in_critic, hidden_in_critic, hidden_out_critic, 1).to(device)
-        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=LR_CRITIC, weight_decay=WEIGHT_DECAY)
-
-        # initialize targets same as original networks
-        policy_update(self.actor, self.target_actor, 1)
-        policy_update(self.critic, self.target_critic, 1)
-
-        self.noise = OUNoise(out_actor)
-
-    def act(self, obs, epsilon):
-        obs = obs.to(device)
-        action = self.actor(obs)
-        if random.random() < epsilon:
-            action += self.noise.sample()
-        return action
-
-    def target_act(self, obs):
-        obs = obs.to(device)
-        action = self.target_actor(obs)
-        return action
-
-
-# from https://github.com/songrotek/DDPG/blob/master/ou_noise.py
-class OUNoise:
-    """Ornstein-Uhlenbeck process."""
-
-    def __init__(self, action_dimension, mu=0, theta=0.15, sigma=0.2):
-        """Initialize parameters and noise process."""
-        self.action_dimension = action_dimension
-        self.mu = mu
-        self.theta = theta
-        self.sigma = sigma
-        self.state = np.ones(self.action_dimension) * self.mu
-
-    def reset(self):
-        """Reset the internal state (= noise) to mean (mu)."""
-        self.state = np.ones(self.action_dimension) * self.mu
-
-    def sample(self):
-        """Update internal state and return it as a noise sample."""
-        x = self.state
-        dx = self.theta * (self.mu - x) + self.sigma * np.random.randn(len(x))
-        self.state = x + dx
-        return torch.tensor(self.state).float()
-
-
-class ReplayBuffer:
-    """Fixed-size buffer to store experience tuples."""
-
-    def __init__(self, buffer_size, batch_size):
-        """Initialize a ReplayBuffer object.
+    def __init__(self, state_size, action_size, i_agent,
+                 buffer_size=int(1e5),
+                 batch_size=256,
+                 learn_every=1,
+                 update_every=1,
+                 gamma=0.99,
+                 tau=0.02,
+                 lr_actor=2e-4,
+                 lr_critic=2e-3,
+                 random_seed=None,
+                 use_asn=True,
+                 asn_kwargs={},
+                 use_psn=False,
+                 psn_kwargs={},
+                 use_per=False,
+                 restore=None):
+        """Initialize an Agent object.
 
         Params
         ======
-            buffer_size (int): maximum size of buffer
-            batch_size (int): size of each training batch
+            state_size (int): dimension of each state
+            action_size (int): dimension of each action
+            random_seed (int): random seed
         """
-        self.deque = deque(maxlen=buffer_size)
+        self.state_size = state_size
+        self.action_size = action_size
+        self.i_agent = i_agent
+        self.update_every = update_every
+        self.learn_every = learn_every
         self.batch_size = batch_size
+        self.gamma = gamma
+        self.tau = tau
+        # Keep track of how many times we've updated weights
+        self.i_updates = 0
+        self.i_step = 0
+        self.use_asn = use_asn
+        self.use_psn = use_psn
+        self.use_per = use_per
 
-    def push(self, transition):
-        """push into the buffer"""
-        input_to_buffer = transpose_list(transition)
-        for item in input_to_buffer:
-            self.deque.append(item)
+        if random_seed is not None:
+            random.seed(random_seed)
 
-    def sample(self):
-        """Randomly sample a batch of experiences from memory."""
-        samples = random.sample(self.deque, k=self.batch_size)
-        # transitions = transpose_list(samples)
-        transitions = transpose_to_tensor(samples)
-        return transitions
+        self.actor_local = Actor(state_size, action_size).to(device)
+        self.actor_target = Actor(state_size, action_size).to(device)
+        if self.use_psn:
+            self.actor_perturbed = Actor(state_size, action_size).to(device)
+        self.critic_local = Critic(2 * state_size, action_size).to(device)
+        self.critic_target = Critic(2 * state_size, action_size).to(device)
 
-    def __len__(self):
-        """Return the current size of internal memory."""
-        return len(self.deque)
+        # restore networks if needed
+        if restore is not None:
+            checkpoint = torch.load(restore, map_location=device)
+            self.actor_local.load_state_dict(checkpoint[self.i_agent]['actor'])
+            self.actor_target.load_state_dict(checkpoint[self.i_agent]['actor'])
+            if self.use_psn:
+                self.actor_perturbed.load_state_dict(checkpoint[self.i_agent]['actor'])
+            self.critic_local.load_state_dict(checkpoint[self.i_agent]['critic'])
+            self.critic_target.load_state_dict(checkpoint[self.i_agent]['critic'])
+
+        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=lr_actor)
+        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=lr_critic)
+
+        # Hard copy weights from local to target networks
+        policy_update(self.actor_local, self.actor_target, 1.0)
+        policy_update(self.critic_local, self.critic_target, 1.0)
+
+        # Noise process
+        if self.use_asn:
+            self.action_noise = OUNoise(action_size, **asn_kwargs)
+
+        if self.use_psn:
+            self.param_noise = PSNoise(**psn_kwargs)
+
+        if self.use_per:
+            replay_class = PrioritizedExperienceReplay
+        else:
+            replay_class = ExperienceReplay
+
+        # Replay memory
+        if Agent.share_buffer:
+            if Agent.buffer is None:
+                Agent.buffer = replay_class(buffer_size, batch_size, random_seed)
+            self.buffer = Agent.buffer
+        else:
+            self.buffer = replay_class(buffer_size, batch_size, random_seed)
+
+    def act(self, states, perturb_mode=True, train_mode=True):
+        """Returns actions for given state as per current policy."""
+        if not train_mode:
+            self.actor_local.eval()
+            if self.use_psn:
+                self.actor_perturbed.eval()
+
+        with torch.no_grad():
+            states = torch.from_numpy(states).float().to(device)
+            actor = self.actor_perturbed if (self.use_psn and perturb_mode) else self.actor_local
+            actions = actor(states).cpu().numpy()
+
+        if train_mode:
+            actions += self.action_noise.sample()
+
+        self.actor_local.train()
+        if self.use_psn:
+            self.actor_perturbed.train()
+
+        return np.clip(actions, -1, 1)
+
+    def perturb_actor_parameters(self):
+        """Apply parameter space noise to actor model, for exploration"""
+        policy_update(self.actor_local, self.actor_perturbed, 1.0)
+        params = self.actor_perturbed.state_dict()
+        for name in params:
+            if 'ln' in name:
+                pass
+            param = params[name]
+            random = torch.randn(param.shape)
+            if use_cuda:
+                random = random.cuda()
+            param += random * self.param_noise.current_stddev
+
+    def reset(self):
+        self.action_noise.reset()
+        if self.use_psn:
+            self.perturb_actor_parameters()
+
+    def step(self, experience, priority=0.0):
+        self.buffer.push(experience)
+        self.i_step += 1
+
+        if len(self.buffer) > self.batch_size:
+            if self.i_step % self.learn_every == 0:
+                self.learn(priority)
+            if self.i_step % self.update_every == 0:
+                self.update()  # soft update the target network towards the actual networks
+
+    def learn(self, priority):
+        """Update policy and value parameters using given batch of experience tuples.
+        Q_targets = r + γ * critic_target(next_state, actor_target(next_state))
+        where:
+            actor_target(state) -> action
+            critic_target(state, action) -> Q-value
+
+        Params
+        ======
+            experiences (Tuple[torch.Tensor]): tuple of (s, a, r, s', done) tuples
+            gamma (float): discount factor
+        """
+        if self.use_per:
+            (states, actions, rewards, states_next, dones), batch_idx = self.buffer.sample(priority)
+        else:
+            states, actions, rewards, states_next, dones = self.buffer.sample()
+
+        states_actor, states_critic = states[:, :self.state_size], states[:, self.state_size:]
+        states_actor_next, states_critic_next = states_next[:, :self.state_size], states_next[:, self.state_size:]
+
+        # Get predicted next-state actions and Q values from target models
+        with torch.no_grad():
+            actions_next = self.actor_target(states_actor_next)
+            Q_targets_next = self.critic_target(states_critic_next, actions_next)
+            Q_targets = rewards + (self.gamma * Q_targets_next * (1 - dones))
+
+        # ---------------------------- update critic ---------------------------- #
+        # Compute critic loss
+        Q_expected = self.critic_local(states_critic, actions)
+        critic_loss = F.smooth_l1_loss(Q_expected, Q_targets)
+
+        # Minimize the loss
+        self.critic_local.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()
+
+        # ---------------------------- update actor ---------------------------- #
+        # Compute actor loss
+        actions_pred = self.actor_local(states_actor)
+        actor_loss = -self.critic_local(states_critic, actions_pred).mean()
+
+        # Minimize the loss
+        self.actor_local.zero_grad()
+        actor_loss.backward()
+        self.actor_optimizer.step()
+
+        if self.use_per:
+            Q_error = Q_expected - Q_targets
+            new_deltas = torch.abs(Q_error.detach().squeeze(1)).numpy()
+            self.buffer.update_deltas(batch_idx, new_deltas)
+
+    def update(self):
+        """soft update targets"""
+        self.i_updates += 1
+        policy_update(self.actor_local, self.actor_target, self.tau)
+        policy_update(self.critic_local, self.critic_target, self.tau)
+
+    def get_save_dict(self):
+
+        save_dict = {'actor': self.actor_local.state_dict(),
+                     'actor_optim_params': self.actor_optimizer.state_dict(),
+                     'critic': self.critic_local.state_dict(),
+                     'critic_optim_params': self.critic_optimizer.state_dict()}
+        return save_dict
+
+    def postprocess(self, t_step, i_agent):
+        if self.use_psn and t_step > 0:
+            perturbed_states, perturbed_actions, _, _, _ = self.buffer.tail(t_step, i_agent)
+            states_actor = perturbed_states[:, :self.state_size]
+            unperturbed_actions = self.act(np.array(states_actor), False, False)
+            diff = np.array(perturbed_actions) - unperturbed_actions
+            mean_diff = np.mean(np.square(diff), axis=0)
+            dist = np.sqrt(np.mean(mean_diff))
+            self.param_noise.adapt(dist)

@@ -1,22 +1,47 @@
 import os
-import numpy as np
 from collections import namedtuple, deque
-
+from shutil import copyfile
+import numpy as np
 import torch
+from tennis_maddpg import UnityTennisEnv, Agent
 
-from tennis_maddpg import MADDPG, ReplayBuffer
-from utils import transpose_to_tensor
 
-BUFFER_SIZE = int(1e5)  # replay buffer size
-BATCH_SIZE = 256        # minibatch size
-GAMMA = 0.99            # discount factor
-TAU = 0.02             # for soft update of target parameters
-LR_ACTOR = 2e-4         # Learning rate of the actor
-LR_CRITIC = 2e-3        # Learning rate of the critic
-WEIGHT_DECAY = 0    # L2 weight decay
-NOISE_DECAY = 0.99995   #
-UPDATE_EVERY = 1        # Update the network after this many steps.
-NUM_BATCHES = 1         # Roll out this many batches when training.
+PRELOAD_STEPS = int(1e4)  # initialize the replay buffer with this many transitions.
+BUFFER_SIZE = int(2e5)    # replay buffer size
+BATCH_SIZE = 256          # minibatch size
+GAMMA = 0.99              # discount factor
+TAU = 0.02                # for soft update of target parameters
+LR_ACTOR = 2e-4           # Learning rate of the actor
+LR_CRITIC = 2e-3          # Learning rate of the critic
+UPDATE_EVERY = 1          # Update the network after this many steps.
+LEARN_EVERY = 1           # Train local network ever n-steps
+RANDOM_SEED = 0
+NUM_EPISODES = 4000
+
+USE_ASN = True  # Use Action Space Noise
+ASN_KWARGS = {
+    'mu': 0.0,
+    'theta': 0.15,
+    'sigma': 0.20,
+    'scale_start': 1.0,
+    'scale_end': 0.01,
+    'decay': 0.99995
+}
+
+USE_PSN = True  # Use Parameter Space Noise
+PSN_KWARGS = {
+    'initial_stddev': 0.1,
+    'desired_action_stddev': 0.1,
+    'adoption_coefficient': 1.01
+}
+
+USE_PER = True  # Use Prioritized Experience Replay
+PER_PRIORITY_START = 1.0
+PER_PRIORITY_END = 0.3
+PER_PRIORITY_DECAY = 0.9999
+
+AGENT_SHARE_MEMORY = True
+
 # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device = "cpu"
 
@@ -25,32 +50,7 @@ OBSNORM = 1.0 / np.array([13, 7, 30, 7, 13, 7, 30, 7])
 Obs = namedtuple("Obs", field_names=["px", "py", "vx", "vy", "bx", "by"])
 
 
-# fill replay buffer with rnd actions
-def preload_replay_buffer(env, agent, steps):
-    env_info = env.reset(train_mode=True)[brain_name]
-    obs = agent.get_obs(env_info.vector_observations)
-
-    for _ in range(steps):
-        action = np.random.randn(2, 2)  # select an action (for each agent)
-        action = np.clip(action, -1, 1)  # all actions between -1 and 1
-        env_info = env.step(action)[brain_name]
-        obs_next = agent.get_obs(env_info.vector_observations)
-
-        reward = np.array(env_info.rewards)
-        done = np.array(env_info.local_done).astype(np.float)
-
-        transition = (obs.reshape((1, -1)), action.reshape((1, -1)), np.max(reward, keepdims=True).reshape((1, -1)), obs_next.reshape((1, -1)), np.max(done, keepdims=True).reshape((1, -1)))
-        # transition = (obs.reshape(-1), action.reshape(-1), np.max(reward, keepdims=True).reshape(-1), obs_next.reshape(-1), np.max(done, keepdims=True).reshape(-1))
-
-        agent.buffer.push(transition)
-
-        obs = obs_next
-        if done.any():
-            env_info = env.reset(train_mode=True)[brain_name]
-            obs = agent.get_obs(env_info.vector_observations)
-
-
-def train(multi_agent, n_episodes=2000, t_max=1000, print_interval=200, update_interval=2):
+def train(env, agent1, agent2, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISODES, print_interval=100):
     """Train using Deep Deterministic Policy Gradients.
 
     Params
@@ -59,81 +59,105 @@ def train(multi_agent, n_episodes=2000, t_max=1000, print_interval=200, update_i
         t_max (int): maximum number of timesteps per episode
         print_every (int): print after this many episodes. Also used to define length of the deque buffer.
     """
+    pri = PER_PRIORITY_START
     scores = []  # list containing scores from each episode
     scores_window = deque(maxlen=100)  # last 100 scores
     scores_average = []
-    parallel_envs = 1
     best = 0
-    early_stop = 0.7
+    early_stop = 0.5
     # log_path = os.getcwd() + "/log"
-    model_dir = os.getcwd() + "/model_dir"
+    model_dir = os.getcwd() + "/model_dir/tennis"
     os.makedirs(model_dir, exist_ok=True)
 
-    buffer = ReplayBuffer(BUFFER_SIZE, BATCH_SIZE)
+    print('BUFFER_SIZE:', BUFFER_SIZE)
+
+    # fill replay buffer with rnd actions
+    obs = env.reset()
+    for _ in range(preload_steps):
+        actions = np.random.randn(2, 2)  # select an action (for each agent)
+
+        obs_next, rewards, dones = env.step(actions)
+
+        obs_critic = np.reshape(obs, (-1))
+        obs1 = np.concatenate((obs[0], obs_critic))
+        obs2 = np.concatenate((obs[1], obs_critic))
+
+        obs_critic_next = np.reshape(obs_next, (-1))
+        obs_next1 = np.concatenate((obs_next[0], obs_critic_next))
+        obs_next2 = np.concatenate((obs_next[1], obs_critic_next))
+
+        transition1 = (obs1, actions[0], rewards[0], obs_next1, dones[0])
+        transition2 = (obs2, actions[1], rewards[1], obs_next2, dones[1])
+
+        agent1.buffer.push(transition1)
+        agent2.buffer.push(transition2)
+
+        obs = obs_next
+        if dones.any():
+            obs = env.reset()
 
     for i_episode in range(1, n_episodes + 1):
-        env_info = env.reset(train_mode=True)[brain_name]  # reset the environment
-        states = env_info.vector_observations  # get the current state (for each agent)
-        obs, obs_full = multi_agent.get_obs(states)
-        multi_agent.reset()
-        episode_rewards = np.zeros((1, num_agents))  # initialize the score (for each agent)
+        episode_rewards = np.zeros((env.num_agents, 1))  # initialize the score (for each agent)
+        obs = env.reset()  # reset the environment
+        agent1.reset()
+        agent2.reset()
         t_step = 0
-
-        print_info = i_episode % print_interval < parallel_envs
-        update_info = i_episode % update_interval < parallel_envs
+        pri = max(pri * PER_PRIORITY_DECAY, PER_PRIORITY_END)
 
         while True:
 
-            actions = multi_agent.act(transpose_to_tensor(obs))  # based on the current state get an action.
-            actions_array = torch.stack(actions).detach().numpy()
-            actions_clipped = np.clip(actions_array, -1, 1)
-            actions_for_env = np.rollaxis(actions_clipped, 1)
+            actions1 = agent1.act(obs[0])[0]
+            actions2 = agent2.act(obs[1])[0]
 
-            env_info = env.step(actions_for_env[0])[brain_name]  # send all actions to the environment
-            states_next = env_info.vector_observations  # get next state (for each agent)
-            obs_next, obs_full_next = multi_agent.get_obs(states_next)
-            rewards = np.array([env_info.rewards]).reshape((1, -1))  # get reward (for each agent)
-            dones = np.array([env_info.local_done]).reshape((1, -1))  # see if episodes finished
+            obs_next, rewards, dones = env.step([actions1, actions2])
 
-            if t_step >= 2:
-                transition = (obs, obs_full, actions_for_env, rewards, obs_next, obs_full_next, dones)
-                buffer.push(transition)
+            obs_critic = np.reshape(obs, (-1))
+            obs1 = np.concatenate((obs[0], obs_critic))
+            obs2 = np.concatenate((obs[1], obs_critic))
 
-            obs, obs_full = obs_next, obs_full_next  # roll over states to next time step
+            obs_critic_next = np.reshape(obs_next, (-1))
+            obs_next1 = np.concatenate((obs_next[0], obs_critic_next))
+            obs_next2 = np.concatenate((obs_next[1], obs_critic_next))
+
+            agent1.step((obs1, actions1, rewards[0], obs_next1, dones[0]), pri)
+            agent2.step((obs2, actions2, rewards[1], obs_next2, dones[1]), pri)
+
             episode_rewards += rewards  # update the score (for each agent)
-
+            obs = obs_next  # roll over states to next time step
             if np.any(dones):  # exit loop if episode finished
                 break
 
             t_step += 1  # increment the number of steps seen this episode.
-            if t_step >= t_max:  # exit loop if episode finished
-                break
 
-        scores.append(np.max(episode_rewards))
-        scores_window.append(np.max(episode_rewards))  # save most recent score
+        episode_reward = np.max(episode_rewards)
+        scores_window.append(episode_reward)  # save most recent score
+        scores.append(episode_reward)
         mean = np.mean(scores_window)
         scores_average.append(mean)
 
-        if len(buffer) > BATCH_SIZE and update_info:
-            for a_i in range(2):
-                samples = buffer.sample()
-                multi_agent.learn(samples, a_i)
-            multi_agent.update_targets()  # soft update the target network towards the actual networks
+        agent1.postprocess(t_step, 1)
+        agent2.postprocess(t_step, 2)
 
-        summary = '\rEpisode {:>4}  Eps: {:.4f}  t_steps: {:4}  Current Score: {:.2f}  Average Score: {:.3f}'.format(i_episode, multi_agent.epsilon, t_step, scores[-1], mean)
+        summary = f'\rEpisode {i_episode:>4}  Buffer Size: {len(agent1.buffer):>6}  Noise: {agent1.action_noise.scale:.2f}  t_step: {t_step:4}  Score (Avg): {episode_reward:.2f} ({mean:.3f})'
 
-        if mean >= 0.5 and mean > best:
+        if mean >= early_stop and mean > best:
             summary += " (saved)"
             best = mean
-            multi_agent.save_model(os.path.join(model_dir, 'tennis-episode-{}.pt'.format(i_episode)))
 
-        if print_info:
+            fmt = 'maddpg-{}-EP_{}-winning_agent{}-score_{:.3f}.pt'
+            filename = os.path.join(model_dir, fmt.format(env.session_name, i_episode, episode_reward.argmax(), best))
+            save_dict_list = [agent1.get_save_dict(), agent2.get_save_dict()]
+
+            torch.save(save_dict_list, filename)
+            copyfile(filename, os.path.join(model_dir, f'maddpg-{env.session_name}-best.pt'))
+
+        if i_episode % print_interval == 0:
             print(summary)
         else:
             print(summary, end="")
 
         if best > early_stop:
-            print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(i_episode, mean))
+            print(f'\nEnvironment solved in {i_episode:d} episodes!\tAverage Score: {mean:.3f}')
             break
 
     return scores, scores_average
@@ -142,34 +166,46 @@ def train(multi_agent, n_episodes=2000, t_max=1000, print_interval=200, update_i
 if __name__ == '__main__':
     import time
     import matplotlib.pyplot as plt
-    from unityagents import UnityEnvironment
 
-    env = UnityEnvironment(file_name='Tennis_Linux/Tennis.x86_64', no_graphics=True)
-    brain_name = env.brain_names[0]
-    brain = env.brains[brain_name]
+    env = UnityTennisEnv(file_name='Tennis_Linux/Tennis.x86_64', no_graphics=True)
 
-    # reset the environment
-    env_info = env.reset(train_mode=True)[brain_name]
+    agent_config = {
+        'buffer_size': BUFFER_SIZE,
+        'batch_size': BATCH_SIZE,
+        'learn_every': LEARN_EVERY,
+        'update_every': UPDATE_EVERY,
+        'random_seed': RANDOM_SEED,
+        'use_asn': USE_ASN,
+        'asn_kwargs': ASN_KWARGS,
+        'use_psn': USE_PSN,
+        'psn_kwargs': PSN_KWARGS,
+        'use_per': USE_PER
+    }
 
-    # number of agents
-    num_agents = len(env_info.agents)
-    print('Number of agents:', num_agents)
+    print('session_name', env.session_name)
+    Agent.share_memory = AGENT_SHARE_MEMORY
+    agent1 = Agent(env.state_size, env.action_size, 1, **agent_config)
+    agent2 = Agent(env.state_size, env.action_size, 2, **agent_config)
 
-    # size of each action
-    action_size = 2 * brain.vector_action_space_size
-    state_size = 2 * (env_info.vector_observations.shape[1] - 6)
     t0 = time.time()
-    multi_agent = MADDPG(state_size, action_size, num_agents)
-    preload_replay_buffer(env, multi_agent, int(1e4))
-    scores, scores_average = train(multi_agent, n_episodes=6000, t_max=1000)
+    scores, scores_average = train(env, agent1, agent2)
     print(time.time() - t0, 'seconds')
 
     fig = plt.figure()
     ax = fig.add_subplot(111)
     plt.plot(np.arange(1, len(scores) + 1), scores)
     plt.plot(np.arange(1, len(scores_average) + 1), scores_average)
+    ax.axhline(y=0.5, xmin=0.0, xmax=1.0, linestyle='--')
+    plt.title(f'Final Buffer Length {len(agent1.buffer)}')
     plt.ylabel('Score')
     plt.xlabel('Episode #')
+    filename = f'model_dir/tennis/maddpg_{env.session_name}'
+    if USE_PER:
+        filename += f'-PER' if USE_PER else f'-ER'
+    filename += f'_{PRELOAD_STEPS:d}'
+    if USE_PSN:
+        filename += f'-PSN'
+    plt.savefig(filename)
     plt.show()
 
     env.close()
