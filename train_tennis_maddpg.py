@@ -1,4 +1,5 @@
 import os
+import time
 from collections import namedtuple, deque
 from shutil import copyfile
 import numpy as np
@@ -135,8 +136,8 @@ def train(env, agent1, agent2, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISO
         mean = np.mean(scores_window)
         scores_average.append(mean)
 
-        agent1.postprocess(t_step, 1)
-        agent2.postprocess(t_step, 2)
+        agent1.postprocess(t_step, 0)
+        agent2.postprocess(t_step, 1)
 
         summary = f'\rEpisode {i_episode:>4}  Buffer Size: {len(agent1.buffer):>6}  Noise: {agent1.action_noise.scale:.2f}  t_step: {t_step:4}  Score (Avg): {episode_reward:.2f} ({mean:.3f})'
 
@@ -164,7 +165,6 @@ def train(env, agent1, agent2, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISO
 
 
 if __name__ == '__main__':
-    import time
     import matplotlib.pyplot as plt
 
     env = UnityTennisEnv(file_name='Tennis_Linux/Tennis.x86_64', no_graphics=True)
@@ -184,8 +184,8 @@ if __name__ == '__main__':
 
     print('session_name', env.session_name)
     Agent.share_memory = AGENT_SHARE_MEMORY
-    agent1 = Agent(env.state_size, env.action_size, 1, **agent_config)
-    agent2 = Agent(env.state_size, env.action_size, 2, **agent_config)
+    agent1 = Agent(env.state_size, env.action_size, 0, **agent_config)
+    agent2 = Agent(env.state_size, env.action_size, 1, **agent_config)
 
     t0 = time.time()
     scores, scores_average = train(env, agent1, agent2)

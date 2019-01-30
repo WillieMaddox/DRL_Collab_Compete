@@ -281,7 +281,7 @@ class Agent:
 
     def postprocess(self, t_step, i_agent):
         if self.use_psn and t_step > 0:
-            perturbed_states, perturbed_actions, _, _, _ = self.buffer.tail(t_step, i_agent)
+            perturbed_states, perturbed_actions, _, _, _ = self.buffer.tail(t_step, i_agent + 1)
             states_actor = perturbed_states[:, :self.state_size]
             unperturbed_actions = self.act(np.array(states_actor), False, False)
             diff = np.array(perturbed_actions) - unperturbed_actions
