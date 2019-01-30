@@ -10,7 +10,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from model import Actor, Critic
-from utils import transpose_list, transpose_to_tensor
+from utils import transpose_list_to_list
+from utils import transpose_to_tensor
 from utils import policy_update
 from unityagents import UnityEnvironment
 
@@ -333,8 +334,8 @@ class ExperienceReplay:
         return transpose_to_tensor(samples)
 
     def tail(self, n):
-        return transpose_list(samples)
         samples = list(islice(self.memory, len(self.memory) - n, len(self.memory)))
+        return transpose_list_to_list(samples)
 
     def __len__(self):
         """Return the current size of internal memory."""

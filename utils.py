@@ -6,7 +6,7 @@ from torch.autograd import Variable
 import numpy as np
 
 
-def transpose_list(mylist):
+def transpose_list_to_list(mylist):
     return list(map(list, zip(*mylist)))
 
 
