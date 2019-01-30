@@ -33,6 +33,10 @@ PSN_KWARGS = {
     'adoption_coefficient': 1.01
 }
 
+USE_PER = True  # Use Prioritized Experience Replay
+PER_PRIORITY_START = 1.0
+PER_PRIORITY_END = 0.3
+PER_PRIORITY_DECAY = 0.9999
 
 
 def train(env, agent, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISODES, print_interval=100):
@@ -44,6 +48,7 @@ def train(env, agent, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISODES, prin
         t_max (int): maximum number of timesteps per episode
         print_every (int): print after this many episodes. Also used to define length of the deque buffer.
     """
+    pri = PER_PRIORITY_START
     scores = []  # list containing scores from each episode
     scores_window = deque(maxlen=100)  # last 100 scores
     scores_average = []
@@ -73,17 +78,17 @@ def train(env, agent, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISODES, prin
         agent.reset()
 
         t_step = 0
+        pri = max(pri * PER_PRIORITY_DECAY, PER_PRIORITY_END)
         while True:
             actions = agent.act(obs)  # based on the current state get an action.
             obs_next, rewards, dones = env.step(actions)  # send all actions to the environment
             transition = (obs, actions, np.sum(rewards, keepdims=True), obs_next, np.max(dones, keepdims=True))
 
-            agent.step(transition)
+            agent.step(transition, pri)
             obs = obs_next
             episode_rewards += rewards  # update the score (for each agent)
             if dones.any():  # exit loop if episode finished
                 break
-
             t_step += 1  # increment the number of steps seen this episode.
 
         episode_reward = np.max(episode_rewards)
@@ -135,9 +140,10 @@ if __name__ == '__main__':
         'asn_kwargs': ASN_KWARGS,
         'use_psn': USE_PSN,
         'psn_kwargs': PSN_KWARGS,
+        'use_per': USE_PER
     }
-
     agent = Agent(state_size, action_size, **agent_config)
+
     print('session_name', env.session_name)
     scores, scores_average = train(env, agent)
     print(time.time() - t0, 'seconds')

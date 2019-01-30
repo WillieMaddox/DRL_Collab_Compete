@@ -12,6 +12,7 @@ import torch.optim as optim
 
 from model import Actor, Critic
 from utils import transpose_list_to_list
+from utils import transpose_array_to_list
 from utils import transpose_to_tensor
 from utils import policy_update
 from unityagents import UnityEnvironment
@@ -92,6 +93,7 @@ class Agent:
                  asn_kwargs={},
                  use_psn=False,
                  psn_kwargs={},
+                 use_per=False,
                  restore=None):
         """Initialize an Agent object.
 
@@ -113,6 +115,7 @@ class Agent:
         self.i_step = 0
         self.use_asn = use_asn
         self.use_psn = use_psn
+        self.use_per = use_per
 
         if random_seed is not None:
             random.seed(random_seed)
@@ -148,7 +151,10 @@ class Agent:
         if self.use_psn:
             self.param_noise = PSNoise(**psn_kwargs)
 
-        self.buffer = ExperienceReplay(buffer_size, batch_size)
+        if self.use_per:
+            self.buffer = PrioritizedExperienceReplay(buffer_size, batch_size, random_seed)
+        else:
+            self.buffer = ExperienceReplay(buffer_size, batch_size, random_seed)
 
     def act(self, states, perturb_mode=True, train_mode=True):
         """Returns actions for given state as per current policy."""
@@ -189,16 +195,16 @@ class Agent:
         if self.use_psn:
             self.perturb_actor_parameters()
 
-    def step(self, experience):
+    def step(self, experience, priority=0.0):
         self.buffer.push(experience)
         self.i_step += 1
         if len(self.buffer) > self.batch_size:
             if self.i_step % self.learn_every == 0:
-                self.learn()
+                self.learn(priority)
             if self.i_step % self.update_every == 0:
                 self.update()  # soft update the target network towards the actual networks
 
-    def learn(self):
+    def learn(self, priority=0.0):
         """Update policy and value parameters using given batch of experience tuples.
         Q_targets = r + γ * critic_target(next_state, actor_target(next_state))
         where:
@@ -210,7 +216,10 @@ class Agent:
             experiences (Tuple[torch.Tensor]): tuple of (s, a, r, s', done) tuples
             gamma (float): discount factor
         """
-        states, actions, rewards, states_next, dones = self.buffer.sample()
+        if self.use_per:
+            (states, actions, rewards, states_next, dones), batch_idx = self.buffer.sample(priority)
+        else:
+            states, actions, rewards, states_next, dones = self.buffer.sample()
 
         # Get predicted next-state actions and Q values from target models
         with torch.no_grad():
@@ -237,6 +246,11 @@ class Agent:
         self.actor_local.zero_grad()
         actor_loss.backward()
         self.actor_optimizer.step()
+
+        if self.use_per:
+            Q_error = Q_expected - Q_targets
+            new_deltas = torch.abs(Q_error.detach().squeeze(1)).numpy()
+            self.buffer.update_deltas(batch_idx, new_deltas)
 
     def update(self):
         """soft update targets"""
@@ -335,7 +349,7 @@ class ExperienceReplay:
         samples = random.sample(self.memory, k=self.batch_size)
         return transpose_to_tensor(samples)
 
-    def tail(self, n):
+    def tail(self, n, *args, **kwargs):
         samples = list(islice(self.memory, len(self.memory) - n, len(self.memory)))
         return transpose_list_to_list(samples)
 
@@ -344,3 +358,46 @@ class ExperienceReplay:
         return len(self.memory)
 
 
+class PrioritizedExperienceReplay:
+    def __init__(self, buffer_size, batch_size, seed=None, min_delta=1e-5):
+        """Initialize a Prioritized Experience Replay Buffer object.
+
+        Params
+        ======
+            buffer_size (int): maximum size of buffer
+            batch_size (int): size of each training batch
+        """
+        self.seed = random.seed(seed) if seed is not None else seed
+        self.batch_size = batch_size
+        self.min_delta = min_delta
+        self.memory = deque(maxlen=buffer_size)
+        self.deltas = deque(maxlen=buffer_size)
+
+    def push(self, transition):
+        """push onto the buffer"""
+        self.memory.append(transition)
+        self.deltas.append(max(self.deltas) if len(self.deltas) > 0 else self.min_delta)
+
+    def sample(self, priority=0.5):
+        deltas = np.array(self.deltas)
+        probs = deltas ** priority / np.sum(deltas ** priority)
+        exp_batch_idx = np.random.choice(len(self.memory), size=self.batch_size, p=probs, replace=False)
+        samples = [self.memory[idx] for idx in exp_batch_idx]
+        return transpose_to_tensor(samples), exp_batch_idx
+
+    def tail(self, n, offset=0):
+        if offset == 0:
+            samples = list(islice(self.memory, len(self.memory) - n, len(self.memory)))
+            samples = transpose_list_to_list(samples)
+        else:
+            samples = [self.memory[i] for i in range((len(self.memory) - 2 * n) + (offset - 1), len(self.memory), 2)]
+            samples = transpose_array_to_list(samples)
+        return samples
+
+    def update_deltas(self, idxs, deltas):
+        for i, idx in enumerate(idxs):
+            self.deltas[idx] = deltas[i] + self.min_delta
+
+    def __len__(self):
+        """Return the current size of internal memory."""
+        return len(self.memory)
