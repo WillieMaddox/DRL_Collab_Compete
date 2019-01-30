@@ -145,7 +145,8 @@ class Agent:
 
         if self.use_psn:
             self.param_noise = PSNoise(**psn_kwargs)
-        self.buffer = ReplayBuffer(buffer_size, batch_size)
+
+        self.buffer = ExperienceReplay(buffer_size, batch_size)
 
     def act(self, states, perturb_mode=True, train_mode=True):
         """Returns actions for given state as per current policy."""
@@ -308,19 +309,19 @@ class OUNoise:
         return self.state * s
 
 
-class ReplayBuffer:
+class ExperienceReplay:
     """Fixed-size buffer to store experience tuples."""
 
     def __init__(self, buffer_size, batch_size):
-        """Initialize a ReplayBuffer object.
+        """Initialize an Experience Replay Buffer object.
 
         Params
         ======
             buffer_size (int): maximum size of buffer
             batch_size (int): size of each training batch
         """
-        self.deque = deque(maxlen=buffer_size)
         self.batch_size = batch_size
+        self.memory = deque(maxlen=buffer_size)
 
     def push(self, transition):
         """push onto the buffer"""
@@ -328,15 +329,15 @@ class ReplayBuffer:
 
     def sample(self):
         """Randomly sample a batch of experiences from memory."""
-        samples = random.sample(self.deque, k=self.batch_size)
+        samples = random.sample(self.memory, k=self.batch_size)
         return transpose_to_tensor(samples)
 
     def tail(self, n):
-        samples = list(islice(self.deque, len(self.deque) - n, len(self.deque)))
         return transpose_list(samples)
+        samples = list(islice(self.memory, len(self.memory) - n, len(self.memory)))
 
     def __len__(self):
         """Return the current size of internal memory."""
-        return len(self.deque)
+        return len(self.memory)
 
 
