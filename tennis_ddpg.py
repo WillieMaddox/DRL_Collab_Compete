@@ -59,15 +59,15 @@ class UnityTennisEnv:
     def reset(self, train_mode=True):
         env_info = self.env.reset(train_mode=train_mode)[self.brain_name]
         obs = self._get_obs(env_info.vector_observations)
-        return obs
+        return obs.reshape(-1)
 
     def step(self, actions):
         actions = np.clip(actions, -1, 1)  # all actions between -1 and 1
-        env_info = self.env.step(actions)[self.brain_name]
+        env_info = self.env.step(actions.reshape(self.num_agents, -1))[self.brain_name]
         obs_next = self._get_obs(env_info.vector_observations)
         rewards = np.array(env_info.rewards)
         dones = np.array(env_info.local_done).astype(np.float)
-        return obs_next, rewards, dones
+        return obs_next.reshape(-1), rewards, dones
 
     def close(self):
         self.env.close()
@@ -157,7 +157,7 @@ class Agent:
         with torch.no_grad():
             states = torch.from_numpy(states).float().to(device)
             actor = self.actor_perturbed if (self.use_psn and perturb_mode) else self.actor_local
-            actions = actor(states).cpu().numpy()
+            actions = actor(states).cpu().numpy()[0]
 
         if train_mode:
             actions += self.action_noise.sample()
@@ -323,10 +323,8 @@ class ReplayBuffer:
         self.batch_size = batch_size
 
     def push(self, transition):
-        """push into the buffer"""
-        input_to_buffer = transpose_list(transition)
-        for item in input_to_buffer:
-            self.deque.append(item)
+        """push onto the buffer"""
+        self.deque.append(transition)
 
     def sample(self):
         """Randomly sample a batch of experiences from memory."""

@@ -58,25 +58,25 @@ def train(env, agent, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISODES, t_ma
     # fill replay buffer with rnd actions
     obs = env.reset()
     for _ in range(preload_steps):
-        actions = np.random.randn(2, 2)  # select an action (for each agent)
+        actions = np.random.randn(4)  # select an action (for each agent)
         obs_next, rewards, dones = env.step(actions)
-        transition = (obs.reshape((1, -1)), actions.reshape((1, -1)), np.max(rewards, keepdims=True).reshape((1, -1)), obs_next.reshape((1, -1)), np.max(dones, keepdims=True).reshape((1, -1)))
+        transition = (obs, actions, np.sum(rewards, keepdims=True), obs_next, np.max(dones, keepdims=True))
         agent.buffer.push(transition)
         obs = obs_next
         if dones.any():
             obs = env.reset()
 
     for i_episode in range(1, n_episodes + 1):
-        episode_rewards = np.zeros((env.num_agents,))  # initialize the score (for each agent)
+        episode_rewards = np.zeros((1, env.num_agents))  # initialize the score (for each agent)
         obs = env.reset()  # reset the environment
         agent.reset()
 
         t_step = 0
         while True:
+            actions = agent.act(obs)  # based on the current state get an action.
+            obs_next, rewards, dones = env.step(actions)  # send all actions to the environment
+            transition = (obs, actions, np.sum(rewards, keepdims=True), obs_next, np.max(dones, keepdims=True))
 
-            actions = agent.act(obs.reshape(-1))  # based on the current state get an action.
-            obs_next, rewards, dones = env.step(actions.reshape(2, -1))  # send all actions to the environment
-            transition = (obs.reshape((1, -1)), actions.reshape((1, -1)), np.max(rewards, keepdims=True).reshape((1, -1)), obs_next.reshape((1, -1)), np.max(dones, keepdims=True).reshape((1, -1)))
             agent.step(transition)
             obs = obs_next
             episode_rewards += rewards  # update the score (for each agent)
@@ -95,8 +95,8 @@ def train(env, agent, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISODES, t_ma
 
         agent.postprocess(t_step)
 
+        summary = f'\rEpisode {i_episode:>4}  Buffer Size: {len(agent.buffer):>6}  Noise: {agent.action_noise.scale:.2f}  t_step: {t_step:4}  Score (Avg): {episode_reward:.2f} ({mean:.3f})'
 
-        summary = f'\rEpisode {i_episode:>4}  Buffer Size: {len(agent.buffer):>6}  Noise: {agent.noise_scale:.2f}  t_step: {t_step:4}  Episode Score (Avg): {episode_reward:.2f} ({mean:.3f})'
         if mean >= 0.5 and mean > best:
             summary += " (saved)"
             best = mean
