@@ -348,7 +348,7 @@ class ExperienceReplay:
 
     def push(self, transition):
         """push onto the buffer"""
-        self.deque.append(transition)
+        self.memory.append(transition)
 
     def sample(self):
         """Randomly sample a batch of experiences from memory."""
