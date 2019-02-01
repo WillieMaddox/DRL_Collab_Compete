@@ -28,7 +28,7 @@ class LayerNorm(nn.Module):
 class Actor(nn.Module):
     """Actor (Policy) Model."""
 
-    def __init__(self, state_size, action_size, fc1_units=256, fc2_units=128):
+    def __init__(self, state_size, action_size, fc1_units=64, fc2_units=32):
         """Initialize parameters and build model.
         Params
         ======
@@ -72,7 +72,7 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     """Critic (Value) Model."""
 
-    def __init__(self, state_size, action_size, fc1_units=256, fc2_units=128):
+    def __init__(self, state_size, action_size, fc1_units=64, fc2_units=32):
         """Initialize parameters and build model.
         Params
         ======
@@ -107,47 +107,3 @@ class Critic(nn.Module):
         q = self.fc3(x)
         # q = torch.clamp(q, -1, 1)
         return q
-
-
-class Network(nn.Module):
-    def __init__(self, input_dim, hidden_in_dim, hidden_out_dim, output_dim, actor=False):
-        super(Network, self).__init__()
-
-        """self.input_norm = nn.BatchNorm1d(input_dim)
-        self.input_norm.weight.data.fill_(1)
-        self.input_norm.bias.data.fill_(0)"""
-
-        self.fc1 = nn.Linear(input_dim, hidden_in_dim)
-        # self.bn1 = nn.BatchNorm1d(hidden_in_dim)
-        self.fc2 = nn.Linear(hidden_in_dim, hidden_out_dim)
-        self.fc3 = nn.Linear(hidden_out_dim, output_dim)
-        self.nonlin = F.relu  # leaky_relu
-        self.actor = actor
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        self.fc1.weight.data.uniform_(*hidden_init(self.fc1))
-        self.fc2.weight.data.uniform_(*hidden_init(self.fc2))
-        self.fc3.weight.data.uniform_(-1e-3, 1e-3)
-
-    def forward(self, x):
-        # if x.dim() == 1:
-        #     x = torch.unsqueeze(x, 0)
-        h1 = self.nonlin(self.fc1(x))
-        # h1 = self.bn1(h1)
-        h2 = self.nonlin(self.fc2(h1))
-        h3 = self.fc3(h2)
-
-        if self.actor:
-            # return a vector of the force
-
-            # h3 is a 2D vector (a force that is applied to the agent)
-            # we bound the norm of the vector to be between 0 and 10
-            # norm = torch.norm(h3)
-            # hout = 10.0 * (F.tanh(norm)) * h3 / norm if norm > 0 else 10 * h3
-
-            out = F.tanh(h3)
-            return out
-        else:
-            out = torch.clamp(h3, -1, 1)
-            return out
