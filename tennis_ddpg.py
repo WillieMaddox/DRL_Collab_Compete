@@ -262,8 +262,8 @@ class Agent:
 
     def save_model(self, model_dir, session_name, i_episode, best):
 
-        filename = os.path.join(model_dir, f'ddpg-{session_name}-EP_{i_episode}-score_{best:.3f}.pt')
-        filename_best = os.path.join(model_dir, f'ddpg-{session_name}-best.pt')
+        filename = os.path.join(model_dir, f'ddpg_{session_name}-EP_{i_episode}-score_{best:.3f}.pt')
+        filename_best = os.path.join(model_dir, f'ddpg_{session_name}-best.pt')
         save_dict_list = []
         save_dict = {'actor': self.actor_local.state_dict(),
                      'actor_optim_params': self.actor_optimizer.state_dict(),

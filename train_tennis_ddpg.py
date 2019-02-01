@@ -157,8 +157,7 @@ if __name__ == '__main__':
     plt.ylabel('Score')
     plt.xlabel('Episode #')
     filename = f'model_dir/tennis/ddpg_{env.session_name}'
-    if USE_PER:
-        filename += f'-PER' if USE_PER else f'-ER'
+    filename += f'-PER' if USE_PER else f'-ER'
     filename += f'_{PRELOAD_STEPS:d}'
     if USE_PSN:
         filename += f'-PSN'

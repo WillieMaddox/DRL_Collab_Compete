@@ -145,12 +145,12 @@ def train(env, agent1, agent2, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISO
             summary += " (saved)"
             best = mean
 
-            fmt = 'maddpg-{}-EP_{}-winning_agent{}-score_{:.3f}.pt'
-            filename = os.path.join(model_dir, fmt.format(env.session_name, i_episode, episode_reward.argmax(), best))
+            fmt = 'maddpg_{}-EP_{}-winning_agent{}-score_{:.3f}.pt'
+            filename = os.path.join(model_dir, fmt.format(env.session_name, i_episode, episode_rewards.argmax(), best))
             save_dict_list = [agent1.get_save_dict(), agent2.get_save_dict()]
 
             torch.save(save_dict_list, filename)
-            copyfile(filename, os.path.join(model_dir, f'maddpg-{env.session_name}-best.pt'))
+            copyfile(filename, os.path.join(model_dir, f'maddpg_{env.session_name}-best.pt'))
 
         if i_episode % print_interval == 0:
             print(summary)
@@ -200,8 +200,7 @@ if __name__ == '__main__':
     plt.ylabel('Score')
     plt.xlabel('Episode #')
     filename = f'model_dir/tennis/maddpg_{env.session_name}'
-    if USE_PER:
-        filename += f'-PER' if USE_PER else f'-ER'
+    filename += f'-PER' if USE_PER else f'-ER'
     filename += f'_{PRELOAD_STEPS:d}'
     if USE_PSN:
         filename += f'-PSN'
