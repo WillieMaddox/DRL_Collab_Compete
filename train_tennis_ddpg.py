@@ -100,8 +100,7 @@ def train(env, agent, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISODES, prin
         agent.postprocess(t_step)
 
         summary = f'\rEpisode {i_episode:>4}  Buffer Size: {len(agent.buffer):>6}  Noise: {agent.action_noise.scale:.2f}  t_step: {t_step:4}  Score (Avg): {episode_reward:.2f} ({mean:.3f})'
-
-        if mean >= 0.5 and mean > best:
+        if mean >= early_stop and mean > best:
             summary += " (saved)"
             best = mean
             agent.save_model(model_dir, env.session_name, i_episode, best)

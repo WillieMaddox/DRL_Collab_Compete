@@ -36,7 +36,7 @@ PSN_KWARGS = {
     'adoption_coefficient': 1.01
 }
 
-USE_PER = True  # Use Prioritized Experience Replay
+USE_PER = False  # Use Prioritized Experience Replay
 PER_PRIORITY_START = 1.0
 PER_PRIORITY_END = 0.3
 PER_PRIORITY_DECAY = 0.9999
