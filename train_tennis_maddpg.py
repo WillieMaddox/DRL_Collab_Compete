@@ -66,11 +66,10 @@ def train(env, agent1, agent2, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISO
     scores_average = []
     best = 0
     early_stop = 0.5
-    # log_path = os.getcwd() + "/log"
-    model_dir = os.getcwd() + "/model_dir/tennis"
+    model_dir = os.path.join(os.getcwd(), "model_dir", "tennis")
     os.makedirs(model_dir, exist_ok=True)
 
-    print('BUFFER_SIZE:', BUFFER_SIZE)
+    print('Max buffer size:', BUFFER_SIZE)
 
     # fill replay buffer with rnd actions
     obs = env.reset()
@@ -151,6 +150,7 @@ def train(env, agent1, agent2, preload_steps=PRELOAD_STEPS, n_episodes=NUM_EPISO
 
             torch.save(save_dict_list, filename)
             copyfile(filename, os.path.join(model_dir, f'maddpg_{env.session_name}-best.pt'))
+            copyfile(filename, os.path.join(model_dir, f'maddpg_last-best.pt'))
 
         if i_episode % print_interval == 0:
             print(summary)
