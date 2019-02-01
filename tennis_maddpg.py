@@ -191,8 +191,8 @@ class Agent:
         policy_update(self.actor_local, self.actor_perturbed, 1.0)
         params = self.actor_perturbed.state_dict()
         for name in params:
-            if 'ln' in name:
-                pass
+            if 'ln' in name:  # Don't add noise to LayerNorm
+                continue
             param = params[name]
             random = torch.randn(param.shape)
             if use_cuda:
