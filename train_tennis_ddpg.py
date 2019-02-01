@@ -125,6 +125,8 @@ if __name__ == '__main__':
     state_size = env.num_agents * env.state_size
     action_size = env.num_agents * env.action_size
 
+    print('session_name', env.session_name)
+
     t0 = time.time()
     agent_config = {
         'buffer_size': BUFFER_SIZE,
@@ -142,18 +144,19 @@ if __name__ == '__main__':
         'psn_kwargs': PSN_KWARGS,
         'use_per': USE_PER
     }
+
     agent = Agent(state_size, action_size, **agent_config)
 
-    print('session_name', env.session_name)
     scores, scores_average = train(env, agent)
-    print(time.time() - t0, 'seconds')
+    run_time = time.time() - t0
+    print(run_time, 'seconds')
 
     fig = plt.figure()
     ax = fig.add_subplot(111)
     plt.plot(np.arange(1, len(scores) + 1), scores)
     plt.plot(np.arange(1, len(scores_average) + 1), scores_average)
     ax.axhline(y=0.5, xmin=0.0, xmax=1.0, linestyle='--')
-    plt.title(f'Final Buffer Length {len(agent.buffer)}')
+    plt.title(f'Final Buffer Length: {len(agent.buffer)}, Time: {run_time:<6.1f}')
     plt.ylabel('Score')
     plt.xlabel('Episode #')
     filename = f'model_dir/tennis/ddpg_{env.session_name}'

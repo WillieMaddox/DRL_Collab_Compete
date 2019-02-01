@@ -169,6 +169,9 @@ if __name__ == '__main__':
 
     env = UnityTennisEnv(file_name='Tennis_Linux/Tennis.x86_64', no_graphics=True)
 
+    print('session_name', env.session_name)
+
+    t0 = time.time()
     agent_config = {
         'buffer_size': BUFFER_SIZE,
         'batch_size': BATCH_SIZE,
@@ -185,22 +188,19 @@ if __name__ == '__main__':
         'psn_kwargs': PSN_KWARGS,
         'use_per': USE_PER
     }
-
-    print('session_name', env.session_name)
     Agent.share_memory = AGENT_SHARE_MEMORY
     agent1 = Agent(env.state_size, env.action_size, 0, **agent_config)
     agent2 = Agent(env.state_size, env.action_size, 1, **agent_config)
-
-    t0 = time.time()
     scores, scores_average = train(env, agent1, agent2)
-    print(time.time() - t0, 'seconds')
+    run_time = time.time() - t0
+    print(run_time, 'seconds')
 
     fig = plt.figure()
     ax = fig.add_subplot(111)
     plt.plot(np.arange(1, len(scores) + 1), scores)
     plt.plot(np.arange(1, len(scores_average) + 1), scores_average)
     ax.axhline(y=0.5, xmin=0.0, xmax=1.0, linestyle='--')
-    plt.title(f'Final Buffer Length {len(agent1.buffer)}')
+    plt.title(f'Final Buffer Length: {len(agent1.buffer)}, Time: {run_time:<6.1f}')
     plt.ylabel('Score')
     plt.xlabel('Episode #')
     filename = f'model_dir/tennis/maddpg_{env.session_name}'
