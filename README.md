@@ -26,43 +26,43 @@ The environment is considered solved, when the average (over 100 episodes) of th
 ### Getting Started
 
 1. First create and activate a new Python 3.6 environment:
-   - Using virtualenv on __linux__:
-   ```bash
-   $ mkvirtualenv -p python3.6 drlcc
-   ```
+    - Using virtualenv on __linux__:
+    ```bash
+    $ mkvirtualenv -p python3.6 drlcc
+    ```
     
-   - Using Anaconda on __Linux__ or __Mac__: 
-   ```bash
-   $ conda create --name drlcc python=3.6
-   $ source activate drlcc
-   ```
-   - Using Anaconda on __Windows__: 
-   ```bash
-   $ conda create --name drlcc python=3.6 
-   $ activate drlcc
-   ```
-   
+    - Using Anaconda on __Linux__ or __Mac__: 
+    ```bash
+    $ conda create --name drlcc python=3.6
+    $ source activate drlcc
+    ```
+    - Using Anaconda on __Windows__: 
+    ```bash
+    $ conda create --name drlcc python=3.6 
+    $ activate drlcc
+    ```
+
 2. Clone this repo, cd into it, and install the dependencies:
-   ```bash
-   $ git clone https://github.com/WillieMaddox/DRL_Collab_Compete.git
-   $ cd DRL_Collab_Compete
-   ```
+    ```bash
+    $ git clone https://github.com/WillieMaddox/DRL_Collab_Compete.git
+    $ cd DRL_Collab_Compete
+    ```
    
-   Install ml-agents from the repository
-   ```bash
-   (drlcc)$ git clone https://github.com/Unity-Technologies/ml-agents.git
-   (drlcc)$ cd ml-agents
-   (drlcc)$ git checkout 0.4.0b
-   (drlcc)$ cd python 
-   (drlcc)$ pip install .
-   ```
-   
-   Install PyTorch using the recommended [pip command](https://pytorch.org/) from the PyTorch site. For example, to install with CUDA 9.2: 
+    Install ml-agents from the repository
+    ```bash
+    (drlcc)$ git clone https://github.com/Unity-Technologies/ml-agents.git
+    (drlcc)$ cd ml-agents
+    (drlcc)$ git checkout 0.4.0b
+    (drlcc)$ cd python 
+    (drlcc)$ pip install .
+    (drlcc)$ cd ../../
+    ```
 
-   ```bash
-   (drlcc)$ conda install pytorch cuda92 -c pytorch
-   ```
+    Install PyTorch using the recommended [pip command](https://pytorch.org/) from the PyTorch site. For example, to install with CUDA 9.2: 
 
+    ```bash
+    (drlcc)$ conda install pytorch cuda92 -c pytorch
+    ```
 
 3. Download the environment from one of the links below.  You need only select the environment that matches your operating system:
     - Linux: [click here](https://s3-us-west-1.amazonaws.com/udacity-drlnd/P3/Tennis/Tennis_Linux.zip)
@@ -74,6 +74,10 @@ The environment is considered solved, when the average (over 100 episodes) of th
 
     (_For AWS_) If you'd like to train the agent on AWS (and have not [enabled a virtual screen](https://github.com/Unity-Technologies/ml-agents/blob/master/docs/Training-on-Amazon-Web-Service.md)), then please use [this link](https://s3-us-west-1.amazonaws.com/udacity-drlnd/P3/Tennis/Tennis_Linux_NoVis.zip) to obtain the "headless" version of the environment.  You will **not** be able to watch the agent without enabling a virtual screen, but you will be able to train the agent.  (_To watch the agent, you should follow the instructions to [enable a virtual screen](https://github.com/Unity-Technologies/ml-agents/blob/master/docs/Training-on-Amazon-Web-Service.md), and then download the environment for the **Linux** operating system above._)
 
+    Note: For users running Linux on your home machines, you don't need to download the headless Tennis Sim for training.  Just add the kwarg `no_graphics=True` when creating your UnityEnvironment to suppress rendering.
+    ```python
+    env = UnityEnvironment(..., no_graphics=True)
+    ```
 4. Place the file in the `DRL_Collab_Compete` folder and unzip (or decompress) the file.   
 
 ### Instructions
