@@ -355,9 +355,14 @@ class ExperienceReplay:
         samples = random.sample(self.memory, k=self.batch_size)
         return transpose_to_tensor(samples)
 
-    def tail(self, n, *args, **kwargs):
-        samples = list(islice(self.memory, len(self.memory) - n, len(self.memory)))
-        return transpose_list_to_list(samples)
+    def tail(self, n, offset=0):
+        if offset == 0:
+            samples = list(islice(self.memory, len(self.memory) - n, len(self.memory)))
+            samples = transpose_list_to_list(samples)
+        else:
+            samples = [self.memory[i] for i in range((len(self.memory) - 2 * n) + (offset - 1), len(self.memory), 2)]
+            samples = transpose_array_to_list(samples)
+        return samples
 
     def __len__(self):
         """Return the current size of internal memory."""
