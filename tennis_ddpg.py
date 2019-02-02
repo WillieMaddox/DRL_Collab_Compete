@@ -151,7 +151,7 @@ class Agent:
             self.action_noise = OUNoise(action_size, **asn_kwargs)
 
         if self.use_psn:
-            self.param_noise = PSNoise(**psn_kwargs)
+            self.param_noise = ParameterSpaceNoise(**psn_kwargs)
 
         if self.use_per:
             self.buffer = PrioritizedExperienceReplay(buffer_size, batch_size, random_seed)
@@ -283,7 +283,7 @@ class Agent:
             self.param_noise.adapt(dist)
 
 
-class PSNoise:
+class ParameterSpaceNoise:
     def __init__(self, initial_stddev=0.1, desired_action_stddev=0.1, adoption_coefficient=1.01):
         self.initial_stddev = initial_stddev
         self.desired_action_stddev = desired_action_stddev
