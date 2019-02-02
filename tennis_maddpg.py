@@ -1,6 +1,5 @@
 import random
 import time
-from collections import namedtuple
 import numpy as np
 
 import torch
@@ -10,8 +9,8 @@ import torch.optim as optim
 from unityagents import UnityEnvironment
 from model import Actor, Critic
 from utils import policy_update
-from tennis_ddpg import OUNoise, ParameterSpaceNoise
-from tennis_ddpg import ExperienceReplay, PrioritizedExperienceReplay
+from utils import OUNoise, ParameterSpaceNoise
+from utils import ExperienceReplay, PrioritizedExperienceReplay
 
 # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # use_cuda = torch.cuda.is_available()
@@ -20,8 +19,6 @@ device = "cpu"
 use_cuda = device != "cpu"
 
 OBSNORM = 1.0 / np.array([13, 7, 30, 7, 13, 7, 30, 7])
-
-Obs = namedtuple("Obs", field_names=["px", "py", "vx", "vy", "bx", "by"])
 
 
 class UnityTennisEnv:
